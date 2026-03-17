@@ -42,6 +42,8 @@ class Professor(Base):
     email: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     research_topics: Mapped[list] = mapped_column(JSONB, default=list)
     lab_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    lab_focus: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    opportunity_score: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
     embedding: Mapped[Optional[list]] = mapped_column(Vector(EMBEDDING_DIM), nullable=True) if Vector else None  # type: ignore
     embedding_model_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_checked: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -100,6 +102,7 @@ class Student(Base):
     embedding: Mapped[Optional[list]] = mapped_column(Vector(EMBEDDING_DIM), nullable=True) if Vector else None  # type: ignore
     embedding_model_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     cv_file: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    experience_snippet: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # preferences: { "countries": [], "universities": [], "fields": [] }
     preferences: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

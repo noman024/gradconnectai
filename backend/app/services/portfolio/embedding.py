@@ -4,17 +4,55 @@ Uses sentence-transformers locally or Ollama if configured; dimension must match
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.db.models import EMBEDDING_DIM
 
 # Default model version for embedding_model_version column
 EMBEDDING_MODEL_VERSION = "nomic-embed-text-v1"
 
+_st_model: Optional[Any] = None
+_st_device: Optional[str] = None
+
 
 def get_embedding_model_version() -> str:
     return getattr(settings, "EMBEDDING_MODEL", "nomic-embed-text") + "-v1"
+
+
+def _get_sentence_transformer_model() -> Optional[Any]:
+    """Load sentence-transformers model once and cache it in memory (prefer GPU if available)."""
+    global _st_model, _st_device
+    logger = get_logger("embedding_service")
+    if _st_model is not None:
+        return _st_model
+    try:
+        from sentence_transformers import SentenceTransformer
+        import torch
+    except ImportError:
+        logger.info("st_not_installed_falling_back")
+        return None
+    try:
+        device = "cpu"
+        if hasattr(torch, "cuda") and torch.cuda.is_available():
+            device = "cuda"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            device = "mps"
+        logger.info("st_loading_model", model_name="all-MiniLM-L6-v2", device=device)
+        _st_model = SentenceTransformer("all-MiniLM-L6-v2", device=device)
+        _st_device = device
+        logger.info("st_loaded_model")
+        return _st_model
+    except Exception as exc:  # pragma: no cover - env issues
+        logger.warning("st_load_failed", error=str(exc))
+        _st_model = None
+        return None
+
+
+def preload_embedding_model() -> None:
+    """Hook for server startup to warm up the embedding model."""
+    _get_sentence_transformer_model()
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
@@ -22,10 +60,11 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     Return list of embedding vectors for each text. Length of each vector must match EMBEDDING_DIM.
     Prefer sentence-transformers; fallback to Ollama embed if available.
     """
-    try:
-        from sentence_transformers import SentenceTransformer
-        model = SentenceTransformer("all-MiniLM-L6-v2")  # 384 dim) or "nomic-ai/nomic-embed-text-v1.5"
-        vecs = model.encode(texts).tolist()
+    logger = get_logger("embedding_service")
+    model = _get_sentence_transformer_model()
+    if model is not None:
+        # model is already placed on CPU/GPU/MPS in _get_sentence_transformer_model
+        vecs = model.encode(texts, convert_to_numpy=True).tolist()
         # If model dim != EMBEDDING_DIM, pad or truncate (schema uses 768; all-MiniLM is 384)
         result: list[list[float]] = []
         for v in vecs:
@@ -34,8 +73,6 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
             else:
                 result.append(v + [0.0] * (EMBEDDING_DIM - len(v)))
         return result
-    except ImportError:
-        pass
     # Ollama fallback (HTTP API)
     try:
         import httpx
@@ -51,7 +88,9 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
                     vec = vec + [0.0] * (EMBEDDING_DIM - len(vec))
                 out.append(vec)
         return out
-    except Exception:
+    except Exception as exc:
+        logger = get_logger("embedding_service")
+        logger.warning("ollama_embedding_failed", error=str(exc))
         pass
     # Placeholder: zero vector so pipeline doesn't break
     return [[0.0] * EMBEDDING_DIM for _ in texts]

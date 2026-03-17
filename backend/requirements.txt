@@ -24,8 +24,7 @@ playwright>=1.41.0
 crawl4ai>=0.7.0,<0.7.5
 urllib3>=2.1.0
 
-# AI / embeddings (Ollama-compatible; optional cloud)
-ollama>=0.1.6
+# AI / embeddings
 sentence-transformers>=2.2.2
 
 # Rate limiting & robots
@@ -34,7 +33,9 @@ robotexclusionrulesparser>=1.7.1
 # Security & validation
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
+slowapi>=0.1.9
 
 # Utils
 python-dotenv>=1.0.0
 structlog>=24.1.0
+pypdf>=5.0.0

@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS professors (
     email TEXT,
     research_topics JSONB DEFAULT '[]',
     lab_url TEXT,
+    lab_focus TEXT,
+    opportunity_score FLOAT DEFAULT 0.5 CHECK (opportunity_score >= 0 AND opportunity_score <= 1),
     embedding vector(768),  -- adjust dimension to match your embedding model
     embedding_model_version TEXT,
     last_checked TIMESTAMPTZ,
@@ -73,6 +75,7 @@ CREATE TABLE IF NOT EXISTS students (
     embedding vector(768),
     embedding_model_version TEXT,
     cv_file TEXT,
+    experience_snippet TEXT,
     preferences JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()

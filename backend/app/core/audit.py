@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from typing import Any
 
-# In-memory audit trail when DB not used; replace with DB insert in production
-_audit_entries: list[dict[str, Any]] = []
+from app.db.models import AuditLog
+from app.db.session import get_session
 
 
 def log_audit(
@@ -16,16 +16,37 @@ def log_audit(
     resource_id: str | None = None,
     details: dict | None = None,
 ) -> None:
-    entry = {
-        "user_id": user_id,
-        "action": action,
-        "resource_type": resource_type,
-        "resource_id": resource_id,
-        "details": details or {},
-    }
-    _audit_entries.append(entry)
-    # In production: insert into audit_log table with created_at
+    """Persist an audit log entry to the audit_log table."""
+    with get_session() as db:
+        entry = AuditLog(
+            user_id=user_id,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            details=details or {},
+        )
+        db.add(entry)
+        db.commit()
 
 
 def get_recent_audit(limit: int = 100) -> list[dict[str, Any]]:
-    return list(reversed(_audit_entries[-limit:]))
+    """Return the most recent audit entries (for admin/debug)."""
+    with get_session() as db:
+        rows = (
+            db.query(AuditLog)
+            .order_by(AuditLog.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return [
+            {
+                "id": str(r.id),
+                "user_id": r.user_id,
+                "action": r.action,
+                "resource_type": r.resource_type,
+                "resource_id": r.resource_id,
+                "details": r.details,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]

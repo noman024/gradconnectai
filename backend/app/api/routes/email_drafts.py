@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
 from app.schemas.email_drafts import EmailDraftGenerateRequest, EmailDraftResponse
-from app.services.store import student_get, professor_get
+from app.services.store import student_get, professor_get, email_draft_create
 from app.services.email_gen.generator import generate_draft
 
 router = APIRouter()
@@ -18,10 +18,20 @@ async def generate_email_draft(body: EmailDraftGenerateRequest):
     draft = generate_draft(
         student_name=student["name"],
         student_research_topics=student.get("research_topics") or [],
-        student_experience_snippet="",  # could come from CV summary
+        student_experience_snippet=student.get("experience_snippet") or "",
         professor_name=professor["name"],
         professor_university=professor.get("university") or "",
-        professor_lab_focus=professor.get("lab_url") or "research",
-        professor_recent_paper_or_topic=professor.get("research_topics", []) and str(professor["research_topics"][:2]) or None,
+        professor_lab_focus=professor.get("lab_focus")
+        or ", ".join((professor.get("research_topics") or [])[:3])
+        or "research",
+        professor_research_topics=professor.get("research_topics") or [],
+        professor_recent_paper_or_topic=None,
+    )
+    # Persist the generated draft so users can revisit / audit later.
+    email_draft_create(
+        student_id=body.student_id,
+        professor_id=body.professor_id,
+        subject=draft.subject,
+        body=draft.body,
     )
     return EmailDraftResponse(subject=draft.subject, body=draft.body)

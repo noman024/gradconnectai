@@ -18,6 +18,11 @@ backend/.mypy_cache/
 # Environment files
 backend/.env
 backend/.env.local
+frontend/.env.local
+
+# Logs and local artifacts
+log/
+vllm/
 
 # Node / frontend
 frontend/node_modules/
@@ -31,3 +36,4 @@ frontend/pnpm-lock.yaml
 # Build artifacts
 dist/
 build/
+Noman_CV.pdf

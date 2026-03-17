@@ -3,8 +3,13 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+
 interface Match {
   professor_id: string;
+  professor_name?: string | null;
+  university?: string | null;
+  lab_focus?: string | null;
   score: number;
   opportunity_score: number;
   final_rank: number;
@@ -14,6 +19,7 @@ export default function MatchesPage() {
   const [studentId, setStudentId] = useState<string | null>(null);
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const sid = typeof window !== "undefined" ? sessionStorage.getItem("student_id") : null;
@@ -22,39 +28,123 @@ export default function MatchesPage() {
       setLoading(false);
       return;
     }
-    fetch(`/api/v1/matches?student_id=${encodeURIComponent(sid)}`)
-      .then((r) => r.json())
+    setLoading(true);
+    setError(null);
+    fetch(`${API_BASE}/api/v1/matches?student_id=${encodeURIComponent(sid)}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(r.statusText);
+        return r.json();
+      })
       .then((d) => setMatches(d.matches || []))
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load matches"))
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <p>Loading…</p>;
+  if (loading) {
+    return (
+      <div className="gc-card">
+        <div className="gc-loading">
+          <div className="gc-spinner" aria-hidden />
+          <p>Loading your matches…</p>
+        </div>
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="gc-card">
+        <p className="gc-error">{error}</p>
+        <Link href="/profile" className="gc-btn-primary">Create profile</Link>
+      </div>
+    );
+  }
+
   if (!studentId) {
     return (
-      <main style={{ padding: "2rem", maxWidth: "48rem", margin: "0 auto" }}>
-        <p>No profile found. <Link href="/profile">Create your profile</Link> first.</p>
-      </main>
+      <div className="gc-card gc-empty-state">
+        <h1 className="gc-title">No profile yet</h1>
+        <p className="gc-subtitle">
+          Create a profile so we can analyze your research interests and find matching supervisors.
+        </p>
+        <Link href="/profile" className="gc-btn-primary">
+          Create your profile
+        </Link>
+      </div>
     );
   }
 
   return (
-    <main style={{ padding: "2rem", maxWidth: "56rem", margin: "0 auto" }}>
-      <h1>Your matches</h1>
-      <p>Ranked by fit and opportunity. Click a professor to generate an outreach email draft.</p>
-      <nav style={{ marginBottom: "1rem" }}><Link href="/">Home</Link></nav>
+    <section className="gc-card">
+      <div className="gc-page-header">
+        <div>
+          <h1 className="gc-title">Your supervisor matches</h1>
+          <p className="gc-subtitle">
+            Ranked by research fit and opportunity score. Click a row to generate a tailored outreach email.
+          </p>
+        </div>
+        <Link href="/profile" className="gc-btn-secondary">
+          Edit profile
+        </Link>
+      </div>
+
       {matches.length === 0 ? (
-        <p>No matches yet. Add professors via the discovery pipeline or seed data.</p>
+        <div className="gc-empty-state gc-empty-inline">
+          <p className="gc-helper">No matches yet. Run discovery to ingest professors, then refresh.</p>
+          <Link href="/profile" className="gc-btn-secondary">Back to profile</Link>
+        </div>
       ) : (
-        <ul style={{ listStyle: "none", padding: 0 }}>
-          {matches.map((m) => (
-            <li key={m.professor_id} style={{ marginBottom: "1rem", padding: "1rem", border: "1px solid #eee", borderRadius: "8px" }}>
-              <Link href={`/email/${m.professor_id}?student_id=${studentId}`}>
-                Professor {m.professor_id.slice(0, 8)}… — rank {m.final_rank.toFixed(2)} (fit: {m.score.toFixed(2)}, opportunity: {m.opportunity_score.toFixed(2)})
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <div className="gc-table-wrap">
+          <table className="gc-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Professor</th>
+                <th>University</th>
+                <th>Lab focus</th>
+                <th className="gc-th-num">Fit</th>
+                <th className="gc-th-num">Opportunity</th>
+                <th className="gc-th-action">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {matches.map((m, index) => (
+                <tr key={m.professor_id}>
+                  <td className="gc-td-rank">{index + 1}</td>
+                  <td>
+                    <span className="gc-table-name">
+                      {m.professor_name || `Professor ${m.professor_id.slice(0, 8)}…`}
+                    </span>
+                  </td>
+                  <td className="gc-td-univ">{m.university || "—"}</td>
+                  <td className="gc-td-focus">
+                    {m.lab_focus ? (
+                      <span className="gc-focus-preview" title={m.lab_focus}>
+                        {m.lab_focus.length > 60 ? `${m.lab_focus.slice(0, 60)}…` : m.lab_focus}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className="gc-td-num">
+                    <span className="gc-score gc-score-fit">{(m.score * 100).toFixed(0)}%</span>
+                  </td>
+                  <td className="gc-td-num">
+                    <span className="gc-score gc-score-opp">{(m.opportunity_score * 100).toFixed(0)}%</span>
+                  </td>
+                  <td className="gc-td-action">
+                    <Link
+                      href={`/email/${m.professor_id}?student_id=${studentId}`}
+                      className="gc-btn-table"
+                    >
+                      Draft email
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
-    </main>
+    </section>
   );
 }

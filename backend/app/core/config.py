@@ -16,7 +16,14 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.CORS_ORIGINS.split(",")]
 
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    EMBEDDING_MODEL: str = "nomic-embed-text"
+    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+
+    # LLM (vLLM + Qwen3.5)
+    LLM_BASE_URL: str = ""
+    LLM_API_KEY: str = "EMPTY"
+    LLM_MODEL: str = "Qwen/Qwen3.5-0.8B"
+
+    CRAWL4AI_HEADLESS: bool = True
 
     CRAWLER_REQUESTS_PER_MINUTE: int = 30
     CRAWLER_GLOBAL_REQUESTS_PER_MINUTE: int = 120
@@ -24,6 +31,13 @@ class Settings(BaseSettings):
     CV_RETENTION_DAYS: int = 365
     MATCH_RETENTION_DAYS: int = 730
     EMAIL_DRAFT_RETENTION_DAYS: int = 90
+
+    # API rate limiting (requests per minute per IP)
+    API_RATE_LIMIT_PER_MINUTE: int = 60
+    API_RATE_LIMIT_UPLOAD_PER_MINUTE: int = 10
+
+    # File upload limits
+    MAX_CV_FILE_SIZE_MB: int = 5
 
 
 settings = Settings()

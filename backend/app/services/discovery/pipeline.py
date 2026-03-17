@@ -11,8 +11,10 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
+from app.core.logging import get_logger
 from app.services.discovery.crawler import DiscoveryCrawler, CrawlResult
 from app.services.discovery.crawl4ai_client import crawl_markdown, extract_name_lines
+from app.services.llm_client import extract_professors_from_markdown
 
 
 @dataclass
@@ -22,7 +24,9 @@ class RawProfessor:
     university: str
     email: str | None = None
     lab_url: str | None = None
+    lab_focus: str | None = None
     research_topics: list[str] = field(default_factory=list)
+    opportunity_score: float = 0.5
     sources: list[str] = field(default_factory=list)
     last_checked: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     active_flag: bool = False
@@ -69,12 +73,40 @@ async def run_university_lab_pipeline(seed_urls: list[str], university_name: str
     - Prefer Crawl4AI Markdown crawling when available for better extraction.
     - Fallback to simple HTML crawler otherwise.
     """
+    logger = get_logger("discovery_pipeline")
     seen_names: set[tuple[str, str]] = set()
     all_raw: list[RawProfessor] = []
 
     # 1) Try Crawl4AI for richer Markdown-based extraction
+    logger.info("discovery_start", seed_urls=seed_urls, university=university_name)
     md_results = await crawl_markdown(seed_urls)
+    logger.info("discovery_crawl4ai_done", pages=len(md_results))
     for res in md_results:
+        # First try LLM-based structured extraction
+        prof_dicts = extract_professors_from_markdown(res.markdown, university_name, res.url)
+        if prof_dicts:
+            for p in prof_dicts:
+                key = (p["name"].strip().lower(), university_name)
+                if key in seen_names:
+                    continue
+                seen_names.add(key)
+                all_raw.append(
+                    RawProfessor(
+                        name=p["name"],
+                        university=university_name,
+                        email=p.get("email"),
+                        lab_url=res.url,
+                        lab_focus=p.get("lab_focus"),
+                        research_topics=p.get("research_topics") or [],
+                        opportunity_score=float(p.get("opportunity_score") or 0.5),
+                        sources=[res.url],
+                        last_checked=datetime.now(timezone.utc),
+                        active_flag=True,
+                    )
+                )
+            continue
+
+        # Fallback: simple name-line heuristic
         name_lines = extract_name_lines(res.markdown)
         for name in name_lines:
             key = (name.strip().lower(), university_name)
@@ -110,4 +142,11 @@ async def run_university_lab_pipeline(seed_urls: list[str], university_name: str
             r.active_flag = crawler.active_flag_from_success(True)
             all_raw.append(r)
 
+    logger.info(
+        "discovery_finished",
+        total_raw=len(all_raw),
+        unique_names=len(seen_names),
+        seed_urls=seed_urls,
+        university=university_name,
+    )
     return all_raw
