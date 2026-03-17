@@ -1,0 +1,40 @@
+# GradConnectAI Backend — Python 3.11+
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# Database
+sqlalchemy>=2.0.25
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.9
+
+# pgvector for embeddings
+pgvector>=0.2.4
+
+# Environment
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# HTTP client & crawling
+httpx>=0.26.0
+scrapy>=2.11.0
+beautifulsoup4>=4.12.0
+playwright>=1.41.0
+# Crawl4AI version compatible with Python 3.9
+crawl4ai>=0.7.0,<0.7.5
+urllib3>=2.1.0
+
+# AI / embeddings (Ollama-compatible; optional cloud)
+ollama>=0.1.6
+sentence-transformers>=2.2.2
+
+# Rate limiting & robots
+robotexclusionrulesparser>=1.7.1
+
+# Security & validation
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# Utils
+python-dotenv>=1.0.0
+structlog>=24.1.0

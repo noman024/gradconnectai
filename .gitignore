@@ -1,0 +1,33 @@
+# Global
+.DS_Store
+*.log
+*.swp
+*.swo
+
+# Cursor / editor metadata
+.cursor/
+.vscode/
+
+# Python / backend
+backend/.venv/
+backend/__pycache__/
+backend/**/*.pyc
+backend/.pytest_cache/
+backend/.mypy_cache/
+
+# Environment files
+backend/.env
+backend/.env.local
+
+# Node / frontend
+frontend/node_modules/
+frontend/.next/
+frontend/.turbo/
+frontend/.vercel/
+frontend/npm-debug.log*
+frontend/yarn.lock
+frontend/pnpm-lock.yaml
+
+# Build artifacts
+dist/
+build/
