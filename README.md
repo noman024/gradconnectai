@@ -52,7 +52,7 @@ source .venv/bin/activate   # or .venv\Scripts\activate on Windows
 pip install --upgrade pip
 pip install -r requirements.txt
 cp .env.example .env        # edit with your DATABASE_URL, LLM_BASE_URL, and keys (see below)
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8009
 ```
 
 ### Where to get DATABASE_URL and keys
@@ -63,9 +63,9 @@ uvicorn app.main:app --reload --port 8000
 | **DATABASE_URL**      | **Supabase:** Sign up at [supabase.com](https://supabase.com), create a project, then go to **Project Settings → Database**. Copy the **Connection string** (URI). Use **URI** mode and replace the password. For the async driver use: `postgresql+asyncpg://postgres.[ref]:[YOUR-PASSWORD]@aws-0-[region].pooler.supabase.com:6543/postgres`. |
 | **SYNC_DATABASE_URL** | Same as above but with the regular `postgresql://` scheme (no `+asyncpg`). Use the same host, user, password, and database.                                                                                                                                                                                                                     |
 | **API_SECRET_KEY**    | Generate your own secret (e.g. for signing sessions). Run: `openssl rand -hex 32` and paste the result. Use a different value in production.                                                                                                                                                                                                    |
-| **LLM_BASE_URL**      | Base URL of your OpenAI-compatible LLM server (e.g. Ollama with Qwen3.5 instruct: `http://localhost:11434/v1`, or vLLM: `http://localhost:8001/v1`).                                                                                                                                                                                             |
+| **LLM_BASE_URL**      | Base URL of your OpenAI-compatible LLM server (e.g. Ollama with Qwen3.5 instruct: `http://localhost:11435/v1`, or vLLM: `http://localhost:8010/v1`).                                                                                                                                                                                             |
 | **LLM_API_KEY**       | API key for that LLM server (use `EMPTY` for a local Ollama/vLLM server without auth).                                                                                                                                                                                                                                                           |
-| **LLM_MODEL**         | Model name: `frob/qwen3.5-instruct:4b` for Ollama (recommended), or `Qwen/Qwen3.5-0.8B` for vLLM.                                                                                                                                                                                                                                               |
+| **LLM_MODEL**         | Model name: `frob/qwen3.5-instruct:9b` for Ollama (recommended), or `Qwen/Qwen3.5-0.8B` for vLLM.                                                                                                                                                                                                                                               |
 | **EMBEDDING_MODEL**   | Name of the embedding model used locally for sentence-transformers (used for pgvector alignment).                                                                                                                                                                                                                                               |
 | **ENVIRONMENT**       | Use `development` locally and `production` when deployed.                                                                                                                                                                                                                                                                                       |
 
@@ -81,7 +81,7 @@ npm run dev
 ```
 
 - Dashboard: [http://localhost:3000](http://localhost:3000)  
-- API docs: [http://localhost:8000/docs](http://localhost:8000/docs) (when ENVIRONMENT != production)
+- API docs: [http://localhost:8009/docs](http://localhost:8009/docs) (when ENVIRONMENT != production)
 
 ### LLM server (Ollama + Qwen instruct)
 
@@ -102,15 +102,15 @@ ollama serve          # or start the Ollama app
 
 ```bash
 ./serve_ollama_qwen.sh
-# or: ollama pull frob/qwen3.5-instruct:4b
+# or: ollama pull frob/qwen3.5-instruct:9b
 ```
 
 3. **Configure** (`backend/.env`):
 
 ```env
-LLM_BASE_URL=http://localhost:11434/v1
+LLM_BASE_URL=http://localhost:11435/v1
 LLM_API_KEY=EMPTY
-LLM_MODEL=frob/qwen3.5-instruct:4b
+LLM_MODEL=frob/qwen3.5-instruct:9b
 ```
 
 #### Option B: vLLM (GPU recommended)
@@ -123,16 +123,36 @@ vLLM on **CPU-only** (e.g. Mac without GPU) often fails with Qwen3.5 due to a kn
 
 ```bash
 source backend/.venv/bin/activate
-./serve_vllm_qwen.sh        # port 8001
+./serve_vllm_qwen.sh        # port 8010
 ```
 
 3. **Configure** (`backend/.env`):
 
 ```env
-LLM_BASE_URL=http://localhost:8001/v1
+LLM_BASE_URL=http://localhost:8010/v1
 LLM_API_KEY=EMPTY
 LLM_MODEL=Qwen/Qwen3.5-0.8B
 ```
+
+#### GPU selection (vLLM and embeddings)
+
+- **vLLM / Qwen3.5 GPU**: choose which GPU(s) to use via `CUDA_VISIBLE_DEVICES` when starting the server, e.g.:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 ./serve_vllm_qwen.sh      # use GPU 0
+CUDA_VISIBLE_DEVICES=1 ./serve_vllm_qwen.sh      # use GPU 1
+CUDA_VISIBLE_DEVICES=0,1 ./serve_vllm_qwen.sh    # use multiple GPUs (with appropriate vLLM flags)
+```
+
+- **Embedding model GPU**: the sentence-transformers encoder defaults to GPU if available, otherwise CPU.  
+  You can explicitly pin the device in `backend/.env`:
+
+```env
+# Embedding model device override: "cuda", "cuda:0", "cuda:1", "mps", or "cpu"
+EMBEDDING_DEVICE=cuda:0
+```
+
+If `EMBEDDING_DEVICE` is unset, the service auto-detects: prefers CUDA, then MPS, then CPU, and on CUDA it respects `CUDA_VISIBLE_DEVICES` so you can globally control which GPU is visible.
 
 ### Database (run the schema)
 
@@ -171,7 +191,7 @@ cd backend && python run_migrate.py
 ```
 
 - **Manual cleanup:**
-  - Kill process on port 8000: `lsof -ti :8000 | xargs kill`
+  - Kill process on port 8009: `lsof -ti :8009 | xargs kill`
   - Hugging Face / vLLM cache: `rm -rf ~/.cache/huggingface`
   - sentence-transformers: `rm -rf ~/.cache/torch/sentence_transformers`
   - Ollama models: `rm -rf ~/.ollama/models` (then `ollama pull qwen3.5:0.8b` to re-download)
@@ -200,12 +220,12 @@ psql "$SYNC_DATABASE_URL" -c "TRUNCATE TABLE matches, professors RESTART IDENTIT
 
 ### Backend API
 
-Run these in a separate terminal with the backend server already running (`uvicorn app.main:app --reload --port 8000`).
+Run these in a separate terminal with the backend server already running (`uvicorn app.main:app --reload --port 8009`).
 
 - **Health (liveness)**
 
 ```bash
-curl -i http://127.0.0.1:8000/api/v1/health
+curl -i http://127.0.0.1:8009/api/v1/health
 ```
 
 Expected: `200 OK` and `{"status":"ok","environment":"development"}`.
@@ -213,7 +233,7 @@ Expected: `200 OK` and `{"status":"ok","environment":"development"}`.
 - **Health (readiness — DB + counts)**
 
 ```bash
-curl -i http://127.0.0.1:8000/api/v1/health/ready
+curl -i http://127.0.0.1:8009/api/v1/health/ready
 ```
 
 Expected: `200 OK` and `{"status":"ready","database":"connected","professors":N,"students":N}`.
@@ -221,13 +241,13 @@ Expected: `200 OK` and `{"status":"ready","database":"connected","professors":N,
 - **Admin stats** (development only; 403 in production)
 
 ```bash
-curl -i http://127.0.0.1:8000/api/v1/admin/stats
+curl -i http://127.0.0.1:8009/api/v1/admin/stats
 ```
 
 - **Create student (Portfolio Analyzer)**
 
 ```bash
-curl -i -X POST http://127.0.0.1:8000/api/v1/students \
+curl -i -X POST http://127.0.0.1:8009/api/v1/students \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Test Student",
@@ -246,20 +266,20 @@ Copy the `student_id`:
 
 ```bash
 export STUDENT_ID="<paste-student-id>"
-curl -i http://127.0.0.1:8000/api/v1/students/$STUDENT_ID
+curl -i http://127.0.0.1:8009/api/v1/students/$STUDENT_ID
 ```
 
 - **Discovery + professors**
 
 ```bash
-curl -i -X POST http://127.0.0.1:8000/api/v1/discovery/run \
+curl -i -X POST http://127.0.0.1:8009/api/v1/discovery/run \
   -H "Content-Type: application/json" \
   -d '{
     "seed_urls": ["https://aimsl.uiu.ac.bd/"],
     "university_name": "UIU"
   }'
 
-curl -i http://127.0.0.1:8000/api/v1/professors
+curl -i http://127.0.0.1:8009/api/v1/professors
 ```
 
 Expected: `{"ingested": N}` and `{ "professors": [...] }`. Professors are deduplicated by name+university. For each ingested professor, a snapshot and a basic `Opportunity` row are also stored.
@@ -268,13 +288,13 @@ Pick a professor id when available:
 
 ```bash
 export PROF_ID="<paste-professor-id>"
-curl -i http://127.0.0.1:8000/api/v1/professors/$PROF_ID
+curl -i http://127.0.0.1:8009/api/v1/professors/$PROF_ID
 ```
 
 - **Matching Engine**
 
 ```bash
-curl -i "http://127.0.0.1:8000/api/v1/matches?student_id=$STUDENT_ID"
+curl -i "http://127.0.0.1:8009/api/v1/matches?student_id=$STUDENT_ID"
 ```
 
 Expected: `200 OK` and:
@@ -302,18 +322,18 @@ If discovery has not ingested any professors yet, an empty `matches` array is ex
 Requires a valid `PROF_ID` from the professors list.
 
 ```bash
-curl -i -X POST http://127.0.0.1:8000/api/v1/email-drafts/generate \
+curl -i -X POST http://127.0.0.1:8009/api/v1/email-drafts/generate \
   -H "Content-Type: application/json" \
   -d "{\"student_id\": \"$STUDENT_ID\", \"professor_id\": \"$PROF_ID\"}"
 ```
 
-Expected: `200 OK` and JSON with `subject` and `body`. Uses the configured Qwen3.5 *instruct* model via an OpenAI-compatible endpoint (typically Ollama with `frob/qwen3.5-instruct:4b`); otherwise a template fallback is returned. Each successful call also persists an entry in the `email_drafts` table.
+Expected: `200 OK` and JSON with `subject` and `body`. Uses the configured Qwen3.5 *instruct* model via an OpenAI-compatible endpoint (typically Ollama with `frob/qwen3.5-instruct:9b`); otherwise a template fallback is returned. Each successful call also persists an entry in the `email_drafts` table.
 
 - **GDPR: Export + delete**
 
 ```bash
-curl -i -X POST "http://127.0.0.1:8000/api/v1/gdpr/export-data?user_id=$STUDENT_ID"
-curl -i -X DELETE "http://127.0.0.1:8000/api/v1/gdpr/delete-data?user_id=$STUDENT_ID"
+curl -i -X POST "http://127.0.0.1:8009/api/v1/gdpr/export-data?user_id=$STUDENT_ID"
+curl -i -X DELETE "http://127.0.0.1:8009/api/v1/gdpr/delete-data?user_id=$STUDENT_ID"
 ```
 
 Expected:
@@ -328,25 +348,25 @@ These are available when `ENVIRONMENT=development` and return `403` in productio
 - **Recent audit log entries**
 
 ```bash
-curl -i "http://127.0.0.1:8000/api/v1/admin/audit?limit=50"
+curl -i "http://127.0.0.1:8009/api/v1/admin/audit?limit=50"
 ```
 
 - **Email drafts for a student**
 
 ```bash
-curl -i "http://127.0.0.1:8000/api/v1/admin/students/$STUDENT_ID/email-drafts"
+curl -i "http://127.0.0.1:8009/api/v1/admin/students/$STUDENT_ID/email-drafts"
 ```
 
 - **Professor snapshots and opportunities**
 
 ```bash
-curl -i "http://127.0.0.1:8000/api/v1/admin/professors/$PROF_ID/snapshots"
-curl -i "http://127.0.0.1:8000/api/v1/admin/professors/$PROF_ID/opportunities"
+curl -i "http://127.0.0.1:8009/api/v1/admin/professors/$PROF_ID/snapshots"
+curl -i "http://127.0.0.1:8009/api/v1/admin/professors/$PROF_ID/opportunities"
 ```
 
 ### Frontend flows
 
-With `npm run dev` running in `frontend` (and backend at 8000):
+With `npm run dev` running in `frontend` (and backend at 8009):
 
 1. Open `http://localhost:3000` — the GradConnectAI home page loads.
 2. Click **“Start with your profile”** → `http://localhost:3000/profile`.

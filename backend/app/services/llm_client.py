@@ -125,7 +125,7 @@ def extract_topics_from_cv(cv_text: str, preference_fields: List[str]) -> Option
         "- Each topic must be a research domain or method, not a person or role.\n"
         "- Return at most 12 topics.\n"
         "- Output MUST be pure JSON only: {\"topics\": [\"topic1\", \"topic2\", ...]}.\n\n"
-        f"CV text:\n{cv_text[:8000]}\n\n"
+        f"CV text:\n{cv_text[:32000]}\n\n"
         f"Stated fields (use if relevant): {', '.join(preference_fields) or 'none'}"
     )
     messages = [
@@ -170,6 +170,10 @@ def extract_professors_from_markdown(
     if not markdown:
         return None
     logger = get_logger("llm_client")
+    # Use a truncated, lowercased copy of the markdown to sanity-check that any
+    # returned professor "name" actually occurs in the source text. This helps
+    # avoid hallucinated people on generic opportunity/job pages.
+    text_for_matching = markdown[:32000].lower()
     user_prompt = (
         "You are helping build a directory of academic supervisors.\n"
         "From the following page content, extract information about people who could be potential supervisors.\n\n"
@@ -191,7 +195,7 @@ def extract_professors_from_markdown(
         "]}.\n\n"
         f"University: {university}\n"
         f"Page URL: {page_url}\n\n"
-        f"Page content (Markdown):\n{markdown[:8000]}\n"
+        f"Page content (Markdown):\n{markdown[:32000]}\n"
     )
     messages = [
         {"role": "system", "content": "You extract structured supervisor data from academic lab and faculty pages."},
@@ -211,9 +215,80 @@ def extract_professors_from_markdown(
     try:
         parsed = ProfessorsResponse.model_validate_json(content)
         cleaned: List[Dict[str, Any]] = []
+        # Log raw structured output for debugging (truncated).
+        try:
+            logger.info(
+                "llm_profs_raw",
+                total=len(parsed.professors),
+                sample=[(p.name or "")[:80] for p in parsed.professors[:5]],
+            )
+        except Exception:
+            pass
+
+        forbidden_name_tokens = {
+            "university",
+            "department",
+            "faculty",
+            "school",
+            "institute",
+            "center",
+            "centre",
+            "college",
+        }
+        forbidden_role_tokens = {
+            "phd",
+            "student",
+            "position",
+            "positions",
+            "scholarship",
+            "fellowship",
+            "postdoc",
+            "vacancy",
+            "opportunity",
+            "opportunities",
+        }
+        forbidden_ui_tokens = {
+            "application",
+            "applications",
+            "application form",
+            "apply",
+            "apply now",
+            "contact",
+            "contact us",
+            "home",
+            "news",
+            "events",
+            "people",
+            "team",
+            "staff",
+        }
         for p in parsed.professors:
             name = p.name.strip()
             if not name:
+                continue
+            lower_name = name.lower()
+            # 1) Name must actually appear in the page text (avoid pure hallucinations).
+            if lower_name not in text_for_matching:
+                continue
+            parts = [part for part in name.split() if part.strip()]
+            # 2) Require at least two tokens.
+            if len(parts) < 2:
+                continue
+            # 3) Drop obvious organization / non-person terms.
+            if any(tok in lower_name for tok in forbidden_name_tokens):
+                continue
+            # 4) Drop titles/roles / UI labels that clearly indicate a position, not a person.
+            if any(tok in lower_name for tok in forbidden_role_tokens | forbidden_ui_tokens):
+                continue
+            # 5) Require that at least two tokens look like proper-name style (e.g. "Alice", "Smith").
+            def _looks_like_name_token(t: str) -> bool:
+                return len(t) > 1 and t[0].isupper() and t[1:].islower()
+
+            name_like_tokens = [t for t in parts if _looks_like_name_token(t)]
+            if len(name_like_tokens) < 2:
+                continue
+            # 6) Drop tokens that are all-caps short acronyms (e.g. "AI", "ML", "NLP").
+            if any(t.isupper() and len(t) <= 4 for t in parts):
                 continue
             topics = [t.strip() for t in (p.research_topics or []) if isinstance(t, str) and t.strip()]
             opp = p.opportunity_score

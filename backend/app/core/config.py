@@ -17,6 +17,8 @@ class Settings(BaseSettings):
 
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+    # Optional override for embedding device, e.g. "cuda:0", "cuda:1", "cpu", "mps".
+    EMBEDDING_DEVICE: str | None = None
 
     # LLM (vLLM + Qwen3.5)
     LLM_BASE_URL: str = ""

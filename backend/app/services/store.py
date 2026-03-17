@@ -175,7 +175,8 @@ def professors_list() -> list[dict[str, Any]]:
                 "lab_focus": p.lab_focus,
                 "research_topics": p.research_topics,
                 "opportunity_score": float(p.opportunity_score) if p.opportunity_score is not None else 0.5,
-                "embedding": p.embedding,
+                # Omit raw embedding from list endpoint to avoid pgvector serialization issues
+                # and reduce payload size; matching uses embeddings server-side only.
                 "sources": p.sources,
             }
             for p in rows

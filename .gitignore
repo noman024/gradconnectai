@@ -37,3 +37,5 @@ frontend/pnpm-lock.yaml
 dist/
 build/
 Noman_CV.pdf
+backend/.pip-tmp/
+backend/.pip-cache/

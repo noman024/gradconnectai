@@ -6,7 +6,7 @@
 # 2. Run: ollama serve   (or start Ollama app)
 # 3. Pull model: ollama pull qwen3.5:0.8b
 # 4. Set in backend/.env:
-#    LLM_BASE_URL=http://localhost:11434/v1
+#    LLM_BASE_URL=http://localhost:11435/v1
 #    LLM_MODEL=qwen3.5:0.8b
 #
 # This script just pulls the model if needed. Ollama must be running separately.
@@ -20,11 +20,11 @@ if ! command -v ollama &>/dev/null; then
   exit 1
 fi
 
-echo "Pulling frob/qwen3.5-instruct:4b (if not already present)..."
-ollama pull frob/qwen3.5-instruct:4b
+echo "Pulling frob/qwen3.5-instruct:9b (if not already present)..."
+ollama pull frob/qwen3.5-instruct:9b
 
 echo ""
 echo "Done. Ensure Ollama is running (ollama serve or Ollama app)."
 echo "Set in backend/.env:"
-echo "  LLM_BASE_URL=http://localhost:11434/v1"
-echo "  LLM_MODEL=frob/qwen3.5-instruct:4b"
+echo "  LLM_BASE_URL=http://localhost:11435/v1"
+echo "  LLM_MODEL=frob/qwen3.5-instruct:9b"

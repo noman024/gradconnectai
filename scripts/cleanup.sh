@@ -27,7 +27,7 @@ if pgrep -f "vllm serve" >/dev/null; then
 fi
 
 # Kill processes on common ports
-for port in 8000 8001 3000; do
+for port in 8009 8010 3000; do
   pid=$(lsof -ti :"$port" 2>/dev/null || true)
   if [[ -n "$pid" ]]; then
     kill "$pid" 2>/dev/null || true

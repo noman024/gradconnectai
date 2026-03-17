@@ -5,15 +5,15 @@ set -euo pipefail
 # On Mac CPU-only, vLLM often fails with Qwen3.5. Use Ollama instead: ./serve_ollama_qwen.sh
 #
 # Usage (from project root, after activating your vLLM Python env):
-#   ./serve_vllm_qwen.sh            # port 8001
+#   ./serve_vllm_qwen.sh            # port 8010
 #   ./serve_vllm_qwen.sh 9000       # custom port
 #
 # Then set in backend/.env:
-#   LLM_BASE_URL=http://localhost:8001/v1
+#   LLM_BASE_URL=http://localhost:8010/v1
 #   LLM_API_KEY=EMPTY
 #   LLM_MODEL=Qwen/Qwen3.5-0.8B
 
-PORT="${1:-8001}"
+PORT="${1:-8010}"
 MODEL="${VLLM_MODEL:-Qwen/Qwen3.5-0.8B}"
 
 # Prefer pip-installed vllm (more stable) over repo clone

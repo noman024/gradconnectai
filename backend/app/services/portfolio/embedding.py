@@ -34,11 +34,17 @@ def _get_sentence_transformer_model() -> Optional[Any]:
         logger.info("st_not_installed_falling_back")
         return None
     try:
-        device = "cpu"
-        if hasattr(torch, "cuda") and torch.cuda.is_available():
-            device = "cuda"
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            device = "mps"
+        # Allow explicit override via settings (e.g. "cuda:0", "cuda:1", "cpu", "mps").
+        configured_device = (getattr(settings, "EMBEDDING_DEVICE", None) or "").strip()
+        if configured_device:
+            device = configured_device
+        else:
+            device = "cpu"
+            if hasattr(torch, "cuda") and torch.cuda.is_available():
+                # Let CUDA_VISIBLE_DEVICES control which GPU(s) are visible; default to first visible.
+                device = "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                device = "mps"
         logger.info("st_loading_model", model_name="all-MiniLM-L6-v2", device=device)
         _st_model = SentenceTransformer("all-MiniLM-L6-v2", device=device)
         _st_device = device
