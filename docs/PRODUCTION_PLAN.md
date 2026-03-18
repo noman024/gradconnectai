@@ -6,6 +6,7 @@ This doc tracks the remaining work to productionize GradConnectAI end-to-end, al
 
 - **Discovery**: build our own SERP-like discovery using **browser automation** (Playwright) + crawling.
 - **Search engine (v1)**: **Google** first.
+- **Social discovery (v1)**: include **LinkedIn post search** and prioritize recency (latest posts signal authentic opportunities).
 - **Evidence policy**: **do not insert/update** a professor unless **name + (email OR profile URL)** is explicitly found in page text/DOM and stored as evidence.
   - **Email required when available**: if an email exists on the page, extraction must capture it and gate on it (do not accept “profile URL only” if an email is present but not captured).
 - **Accounts**: ship **full auth now** (real users, isolation, sessions).
@@ -79,6 +80,18 @@ This doc tracks the remaining work to productionize GradConnectAI end-to-end, al
   - Run queries on **Google** (v1), engines configurable later
   - Extract top‑K results per query (URL + title + snippet + rank)
   - Respect rate limits + randomized waits + per-engine quotas
+- [ ] **LinkedIn post discovery (Playwright)**:
+  - **Support login automation** (session/cookie persistence); run LinkedIn-native searches for:
+    - **posts** (primary for fresh opportunities)
+    - **people profiles** (authors and potential supervisors)
+    - **company/university pages** (labs, departments, centers)
+  - Extract top‑K post URLs with metadata: author name, author profile URL, post timestamp (when visible), snippet.
+  - **Recency-first**: prioritize newer posts during URL selection and in downstream opportunity scoring.
+  - Cache results per query+day to reduce repeated browsing and rate-limit impact.
+- [ ] **LinkedIn session management**:
+  - Persist authenticated storage state (Playwright) in a secure location (encrypted at rest in production).
+  - Handle MFA/2FA: manual bootstrap flow (operator logs in once, we reuse storage state) + periodic re-auth.
+  - Add safety fallbacks: if LinkedIn blocks/invalidates the session, fall back to Google/Bing `site:linkedin.com/*` queries.
 - [ ] **Anti-breakage**:
   - DOM selector versioning
   - Fallback extraction strategies for results (multiple selectors)
@@ -88,6 +101,7 @@ This doc tracks the remaining work to productionize GradConnectAI end-to-end, al
 
 - [ ] **URL scoring**:
   - Boost university/lab pages, faculty directories, personal academic pages
+  - Boost LinkedIn posts that contain explicit hiring/funding language and have recent timestamps
   - Downrank generic job boards unless they contain real professor contact/profile links
 - [ ] **Top‑K crawl plan** per student session.
 
@@ -193,6 +207,7 @@ Resolved:
 
 - **Search engines first**: Google.
 - **Google automation fallback**: implement fallback engine(s) (start with **Bing**, then DDG if needed).
+- **LinkedIn**: include LinkedIn-native post search + profile discovery; prioritize recent posts for authenticity.
 - **Evidence minimum**: email required when available.
 - **Auth UX**: Google OAuth.
 - **OAuth providers**: Google-only.
