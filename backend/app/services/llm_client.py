@@ -47,6 +47,8 @@ class ProfessorItem(BaseModel):
     lab_focus: Optional[str] = None
     research_topics: List[str] = []
     opportunity_score: float = 0.5
+    opportunities: List[Dict[str, Any]] = []
+    opportunity_explanation: Optional[str] = None
 
 
 class ProfessorsResponse(BaseModel):
@@ -177,6 +179,8 @@ def extract_professors_from_markdown(
     - lab_focus (optional short text)
     - research_topics (optional list[str])
     - opportunity_score (optional float 0-1)
+    - opportunities (optional list of structured opportunities)
+    - opportunity_explanation (optional short rationale)
     """
     if not markdown:
         return None
@@ -202,13 +206,21 @@ def extract_professors_from_markdown(
         "  - research_topics: an array of 3-5 concise research topics (domains, methods, or application areas).\n"
         "  - opportunity_score: a number between 0 and 1 estimating how likely they are to be recruiting students now.\n"
         "    Use signals like 'open positions', 'hiring', 'scholarship', 'students wanted', or recent grant/project announcements.\n"
+        "  - opportunities: array (0-3) of structured opportunities, each with:\n"
+        "    - type: one of \"master\", \"phd\", \"postdoc\".\n"
+        "    - signal: short phrase indicating why opportunity may exist.\n"
+        "    - confidence: number between 0 and 1.\n"
+        "    - source_text: optional short quoted text (<=140 chars) from page that supports the signal.\n"
+        "  - opportunity_explanation: one short sentence (<=24 words) summarizing why opportunity_score was assigned.\n"
         "- If there are no clear hiring signals, set opportunity_score around 0.4–0.6.\n"
         "- If the page is a faculty list, extract as many real faculty as possible (prefer those explicitly labeled Professor/Associate Professor/Assistant Professor).\n"
         "- Return at most 25 professors.\n"
         "- Output MUST be pure JSON with this exact shape and nothing else:\n"
         '{\"professors\": [\n'
         '  {\"name\": \"...\", \"email\": \"...\" or null, \"profile_url\": \"...\" or null, \"lab_focus\": \"...\" or null,\n'
-        '   \"research_topics\": [\"...\"], \"opportunity_score\": 0.0-1.0 },\n'
+        '   \"research_topics\": [\"...\"], \"opportunity_score\": 0.0-1.0,\n'
+        '   \"opportunities\": [{\"type\":\"phd|master|postdoc\",\"signal\":\"...\",\"confidence\":0.0-1.0,\"source_text\":\"...\"}],\n'
+        '   \"opportunity_explanation\": \"...\" },\n'
         "  ...\n"
         "]}.\n\n"
         f"University: {university}\n"
@@ -363,6 +375,47 @@ def extract_professors_from_markdown(
             opp = p.opportunity_score
             if not (0.0 <= opp <= 1.0):
                 opp = 0.5
+            opportunities: list[dict[str, Any]] = []
+            for o in (p.opportunities or []):
+                if not isinstance(o, dict):
+                    continue
+                o_type = str(o.get("type") or "").strip().lower()
+                if o_type not in {"master", "phd", "postdoc"}:
+                    continue
+                signal = str(o.get("signal") or "").strip()
+                confidence = o.get("confidence")
+                try:
+                    confidence_f = float(confidence)
+                except Exception:
+                    confidence_f = 0.5
+                confidence_f = min(1.0, max(0.0, confidence_f))
+                source_text = str(o.get("source_text") or "").strip() or None
+                opportunities.append(
+                    {
+                        "type": o_type,
+                        "signal": signal or None,
+                        "confidence": confidence_f,
+                        "source_text": source_text,
+                    }
+                )
+            if opportunities:
+                # Opportunity score should at least reflect strongest structured signal.
+                opp = max(opp, max(float(o["confidence"]) for o in opportunities))
+                for o in opportunities[:3]:
+                    signal = (o.get("signal") or "").strip()
+                    if signal:
+                        evidence.append(
+                            {
+                                "url": page_url,
+                                "evidence_type": "opportunity_signal",
+                                "evidence_value": signal,
+                                "raw_match": signal,
+                                "snippet": _find_snippet(truncated_md, signal) or o.get("source_text"),
+                                "selector": "markdown:text",
+                                "confidence": float(o.get("confidence") or 0.5),
+                            }
+                        )
+            opp_explanation = (p.opportunity_explanation or "").strip() or None
             cleaned.append(
                 {
                     "name": name,
@@ -371,6 +424,8 @@ def extract_professors_from_markdown(
                     "lab_focus": (p.lab_focus or None),
                     "research_topics": topics,
                     "opportunity_score": opp,
+                    "opportunities": opportunities,
+                    "opportunity_explanation": opp_explanation,
                     "_evidence": evidence,
                 }
             )

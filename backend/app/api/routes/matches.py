@@ -2,7 +2,14 @@ from fastapi import APIRouter, HTTPException
 
 from app.core.logging import get_logger
 from app.schemas.matches import MatchItem, MatchListResponse
-from app.services.store import student_get, professors_list, professor_get, matches_for_student, matches_upsert
+from app.services.store import (
+    student_get,
+    professors_list,
+    professor_get,
+    matches_for_student,
+    matches_upsert,
+    opportunities_for_professor,
+)
 from app.services.matching.engine import rank_matches, MatchResult
 
 router = APIRouter()
@@ -44,12 +51,23 @@ def _enrich_matches(matches: list) -> list[MatchItem]:
     out = []
     for m in matches:
         prof = professor_get(m["professor_id"])
+        opps = opportunities_for_professor(m["professor_id"])
+        opp_expl = None
+        if opps:
+            top = opps[0]
+            o_type = (top.get("type") or "phd").upper()
+            signal = top.get("funding")
+            if signal:
+                opp_expl = f"{o_type} opportunity signal: {signal}"
+            else:
+                opp_expl = f"Potential {o_type} opportunity detected from recent discovery sources."
         out.append(
             MatchItem(
                 professor_id=m["professor_id"],
                 professor_name=prof.get("name") if prof else None,
                 university=prof.get("university") if prof else None,
                 lab_focus=prof.get("lab_focus") if prof else None,
+                opportunity_explanation=opp_expl,
                 score=m["score"],
                 opportunity_score=m["opportunity_score"],
                 final_rank=m["final_rank"],

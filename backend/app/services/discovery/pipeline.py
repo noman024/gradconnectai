@@ -25,6 +25,8 @@ class RawProfessor:
     lab_focus: str | None = None
     research_topics: list[str] = field(default_factory=list)
     opportunity_score: float = 0.5
+    opportunities: list[dict[str, Any]] = field(default_factory=list)
+    opportunity_explanation: str | None = None
     sources: list[str] = field(default_factory=list)
     evidence: list[dict[str, Any]] = field(default_factory=list)
     last_checked: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -75,6 +77,8 @@ async def run_university_lab_pipeline(seed_urls: list[str], university_name: str
                     lab_focus=p.get("lab_focus"),
                     research_topics=p.get("research_topics") or [],
                     opportunity_score=float(p.get("opportunity_score") or 0.5),
+                    opportunities=p.get("opportunities") or [],
+                    opportunity_explanation=p.get("opportunity_explanation"),
                     sources=[res.url],
                     evidence=(p.get("_evidence") or []),
                     last_checked=datetime.now(timezone.utc),

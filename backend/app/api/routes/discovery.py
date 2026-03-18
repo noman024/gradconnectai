@@ -5,12 +5,16 @@ from typing import Any
 
 from app.services.discovery.pipeline import run_university_lab_pipeline
 from app.services.discovery.query_planner import build_discovery_query_plan
+from app.services.discovery.harvester import run_automated_search_harvester
 from app.services.discovery.google_search import google_search_collect_links
+from app.services.discovery.google_browser_search import google_search_collect_links_browser
+from app.services.discovery.linkedin_discovery import discover_linkedin_candidates
 from app.services.store import (
     professor_set,
     professor_get_by_name_university,
     generate_id,
     opportunity_create_basic,
+    opportunity_create_structured,
     source_document_create,
     extraction_run_create,
     student_get,
@@ -42,6 +46,31 @@ class GoogleSearchIngestionRequest(BaseModel):
     max_links_per_query: int = 10
 
 
+class GoogleBrowserSearchIngestionRequest(BaseModel):
+    queries: list[str]
+    max_links_per_query: int = 10
+
+
+class LinkedInDiscoveryRequest(BaseModel):
+    queries: list[str]
+    session_id: str | None = None
+    li_at_cookie: str | None = None
+    max_links_per_query: int | None = None
+
+
+class DiscoveryHarvestRequest(BaseModel):
+    student_id: str | None = None
+    cv_text: str | None = None
+    preferences: dict | None = None
+    research_topics: list[str] | None = None
+    use_browser_google: bool = True
+    max_queries_per_source: int = 6
+    max_links_per_query: int = 10
+    top_k: int = 40
+    linkedin_session_id: str | None = None
+    linkedin_li_at_cookie: str | None = None
+
+
 @router.post("/run")
 async def run_discovery(body: DiscoverySeedRequest):
     """Crawl seed URLs, extract professors, embed and store them. Deduplicates by name+university."""
@@ -62,6 +91,8 @@ async def run_discovery(body: DiscoverySeedRequest):
                     "last_checked": r.last_checked.isoformat() if r.last_checked else None,
                     "active_flag": r.active_flag,
                     "opportunity_score": r.opportunity_score,
+                    "opportunities": r.opportunities,
+                    "opportunity_explanation": r.opportunity_explanation,
                     "evidence": r.evidence or [],
                 }
             )
@@ -122,19 +153,26 @@ async def run_discovery(body: DiscoverySeedRequest):
                 "last_checked": r.last_checked.isoformat() if r.last_checked else None,
                 "active_flag": r.active_flag,
                 "opportunity_score": r.opportunity_score,
+                "opportunities": r.opportunities,
+                "opportunity_explanation": r.opportunity_explanation,
             },
             evidence=(r.evidence or []),
             source_document_id=source_document_id,
             extraction_run_id=extraction_run_id,
         )
-        # For now, record a single generic opportunity per discovered professor,
-        # using their opportunity_score as a hint that something is open.
+        # Persist structured opportunities when extracted; fallback to one generic row.
         try:
-            opportunity_create_basic(
+            created = opportunity_create_structured(
                 professor_id=professor_id,
-                opp_type=OpportunityType.phd,
-                source=(r.sources[0] if r.sources else None),
+                opportunities=r.opportunities or [],
+                default_source=(r.sources[0] if r.sources else None),
             )
+            if created <= 0:
+                opportunity_create_basic(
+                    professor_id=professor_id,
+                    opp_type=OpportunityType.phd,
+                    source=(r.sources[0] if r.sources else None),
+                )
         except Exception:
             # Discovery should not fail just because opportunity persistence failed.
             pass
@@ -183,3 +221,65 @@ async def discovery_google_search(body: GoogleSearchIngestionRequest):
         body.queries,
         max_links_per_query=body.max_links_per_query,
     )
+
+
+@router.post("/google-search-browser")
+async def discovery_google_search_browser(body: GoogleBrowserSearchIngestionRequest):
+    """
+    Collect and score top links from Google search using a real browser session.
+    """
+    return await google_search_collect_links_browser(
+        body.queries,
+        max_links_per_query=body.max_links_per_query,
+    )
+
+
+@router.post("/linkedin-discovery")
+async def discovery_linkedin(body: LinkedInDiscoveryRequest):
+    """
+    Discover LinkedIn profile/post URLs with session tracking and recency weighting.
+    """
+    return await discover_linkedin_candidates(
+        queries=body.queries,
+        session_id=body.session_id,
+        li_at_cookie=body.li_at_cookie,
+        max_links_per_query=body.max_links_per_query,
+    )
+
+
+@router.post("/harvest")
+async def discovery_harvest(body: DiscoveryHarvestRequest):
+    """
+    End-to-end automated search harvester:
+    query planning -> Google/LinkedIn collection -> dedupe -> ranked seed URLs.
+    """
+    topics: list[str] = list(body.research_topics or [])
+    prefs: dict[str, Any] = dict(body.preferences or {})
+
+    if body.student_id:
+        student = student_get(body.student_id)
+        if student:
+            topics = topics + list(student.get("research_topics") or [])
+            sp = student.get("preferences") or {}
+            if isinstance(sp, dict):
+                merged = dict(sp)
+                merged.update(prefs)
+                prefs = merged
+    if body.cv_text and not topics:
+        tokens = [w for w in body.cv_text.replace("\n", " ").split(" ") if len(w) > 4]
+        topics = tokens[:20]
+
+    harvest = await run_automated_search_harvester(
+        research_topics=topics,
+        preferences=prefs,
+        use_browser_google=body.use_browser_google,
+        max_queries_per_source=body.max_queries_per_source,
+        max_links_per_query=body.max_links_per_query,
+        top_k=body.top_k,
+        linkedin_session_id=body.linkedin_session_id,
+        linkedin_li_at_cookie=body.linkedin_li_at_cookie,
+    )
+    return {
+        "student_id": body.student_id,
+        **harvest,
+    }

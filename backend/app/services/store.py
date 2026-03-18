@@ -368,6 +368,49 @@ def opportunity_create_basic(
         return str(opp.id)
 
 
+def opportunity_create_structured(
+    professor_id: str,
+    opportunities: list[dict[str, Any]],
+    *,
+    default_source: str | None = None,
+) -> int:
+    """Create multiple structured opportunity rows for a professor. Returns created count."""
+    with get_session() as db:
+        pid = _uuid(professor_id)
+        created = 0
+        for o in opportunities or []:
+            if not isinstance(o, dict):
+                continue
+            raw_type = str(o.get("type") or "phd").strip().lower()
+            if raw_type not in {"master", "phd", "postdoc"}:
+                raw_type = "phd"
+            opp_type = OpportunityType(raw_type)
+            signal = (str(o.get("signal") or "").strip() or None)
+            confidence = o.get("confidence")
+            try:
+                conf_text = f"{float(confidence):.2f}"
+            except Exception:
+                conf_text = None
+            funding = signal
+            if conf_text:
+                funding = f"{signal or 'signal'} (confidence={conf_text})"
+            source = (str(o.get("source_url") or "").strip() or default_source)
+            opp = Opportunity(
+                professor_id=pid,
+                type=opp_type,
+                funding=funding,
+                deadline=None,
+                source=source,
+                expired=False,
+                valid_until=None,
+            )
+            db.add(opp)
+            created += 1
+        if created > 0:
+            db.commit()
+        return created
+
+
 def email_drafts_for_student(student_id: str) -> list[dict[str, Any]]:
     """List email drafts for a student, newest first."""
     with get_session() as db:

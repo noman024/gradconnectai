@@ -9,6 +9,7 @@ interface Match {
   professor_name?: string | null;
   university?: string | null;
   lab_focus?: string | null;
+  opportunity_explanation?: string | null;
   score: number;
   opportunity_score: number;
   final_rank: number;
@@ -129,6 +130,13 @@ export default function MatchesPage() {
                   </td>
                   <td className="gc-td-num">
                     <span className="gc-score gc-score-opp">{(m.opportunity_score * 100).toFixed(0)}%</span>
+                    {m.opportunity_explanation ? (
+                      <div className="gc-helper" title={m.opportunity_explanation}>
+                        {m.opportunity_explanation.length > 65
+                          ? `${m.opportunity_explanation.slice(0, 65)}…`
+                          : m.opportunity_explanation}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="gc-td-action">
                     <Link

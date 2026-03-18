@@ -17,7 +17,7 @@ AI-driven supervisor discovery and matching for Master's, PhD, and Postdoc stude
 - Student uploads CV (PDF/text) -> backend extracts topics/skills and builds profile embedding.
 - System constructs discovery intents/keywords -> searches and selects high-value source URLs/posts (Google/LinkedIn roadmap).
 - Seed URLs are prioritized by quality/relevance/freshness -> Crawl4AI fetches and normalizes pages -> Qwen extracts professor/opportunity signals with evidence gating.
-- Matching ranks supervisors by semantic fit + opportunity score -> user gets ranked results and personalized email drafts.
+- Matching ranks supervisors by semantic fit + opportunity score, with opportunity explanations -> user gets ranked results and personalized email drafts.
 
 ## Repository Layout
 
@@ -121,6 +121,11 @@ npm run dev
 | `LLM_MAX_OUTPUT_TOKENS_PROFESSORS` | Output cap for professor extraction |
 | `LLM_MAX_OUTPUT_TOKENS_EMAIL` | Output cap for email generation |
 | `CRAWL4AI_HEADLESS` | Crawl4AI browser mode (`1` headless, `0` visible) |
+| `GOOGLE_BROWSER_HEADLESS` | Browser ingestion headless mode |
+| `GOOGLE_BROWSER_TIMEOUT_MS` | Browser navigation timeout for Google ingestion |
+| `GOOGLE_BROWSER_WAIT_MS` | Post-load wait before parsing search results |
+| `LINKEDIN_SESSION_TTL_MINUTES` | LinkedIn discovery session TTL |
+| `LINKEDIN_MAX_RESULTS_PER_QUERY` | Max LinkedIn links kept per query |
 
 ## LLM Backend Options (Ollama and vLLM)
 
@@ -207,6 +212,21 @@ curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/query-plan \
 curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/google-search \
   -H "Content-Type: application/json" \
   -d '{"queries":["machine learning professor open position"],"max_links_per_query":10}' | jq .
+
+# Browser-based Google ingestion MVP (Playwright-backed)
+curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/google-search-browser \
+  -H "Content-Type: application/json" \
+  -d '{"queries":["machine learning professor open position"],"max_links_per_query":10}' | jq .
+
+# LinkedIn discovery MVP (session + recency-weighted ranking)
+curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/linkedin-discovery \
+  -H "Content-Type: application/json" \
+  -d '{"queries":["machine learning professor hiring"],"max_links_per_query":8}' | jq .
+
+# Integrated automated harvester (query-plan + Google + LinkedIn -> ranked seed URLs)
+curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/harvest \
+  -H "Content-Type: application/json" \
+  -d '{"research_topics":["machine learning","NLP"],"preferences":{"universities":["UIU"],"countries":["Bangladesh"]},"use_browser_google":true,"max_queries_per_source":4,"max_links_per_query":8,"top_k":20}' | jq .
 
 # Matches
 curl -s "http://127.0.0.1:8009/api/v1/matches?student_id=$STUDENT_ID" | jq .

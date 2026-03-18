@@ -79,16 +79,16 @@ GradConnectAI helps Master's, PhD, and Postdoc applicants:
 ### Product capabilities
 
 - [x] Build CV-driven query planner to generate SEO-friendly Google/LinkedIn search keywords.
-- [ ] Implement browser-based Google search ingestion (top links collection + dedupe + scoring). (MVP HTTP ingestion exists)
-- [ ] Implement LinkedIn post/profile discovery with session management and recency weighting.
+- [x] Implement browser-based Google search ingestion (top links collection + dedupe + scoring). (MVP endpoint)
+- [x] Implement LinkedIn post/profile discovery with session management and recency weighting. (MVP endpoint)
 - [x] Add URL prioritization layer before crawl (source quality + relevance + freshness).
-- [ ] Expand opportunity extraction into explicit structured opportunities + explanations in UI.
+- [x] Expand opportunity extraction into explicit structured opportunities + explanations in UI. (MVP backend + matches UI)
 
 ### Workflow sync checklist (expected vs implemented)
 
 - [x] CV upload/paste -> topic extraction -> student profile persistence.
 - [x] CV-derived query generation for Google/LinkedIn discovery.
-- [ ] Automated Google + LinkedIn search harvesting of top links/posts.
+- [x] Automated Google + LinkedIn search harvesting of top links/posts. (MVP integrated harvester endpoint)
 - [x] Crawl + normalize + Qwen extraction from seed URLs.
 - [x] Evidence-gated acceptance before professor persistence.
 - [x] Semantic + opportunity ranking in matches endpoint.

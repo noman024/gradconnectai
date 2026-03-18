@@ -6,6 +6,7 @@ class MatchItem(BaseModel):
     professor_name: str | None = None
     university: str | None = None
     lab_focus: str | None = None
+    opportunity_explanation: str | None = None
     score: float
     opportunity_score: float
     final_rank: float

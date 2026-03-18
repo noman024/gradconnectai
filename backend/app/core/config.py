@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     LLM_MAX_OUTPUT_TOKENS_EMAIL: int = 768
 
     CRAWL4AI_HEADLESS: bool = True
+    GOOGLE_BROWSER_HEADLESS: bool = True
+    GOOGLE_BROWSER_TIMEOUT_MS: int = 30000
+    GOOGLE_BROWSER_WAIT_MS: int = 1200
+    LINKEDIN_SESSION_TTL_MINUTES: int = 120
+    LINKEDIN_MAX_RESULTS_PER_QUERY: int = 10
 
     # API rate limiting (requests per minute per IP)
     API_RATE_LIMIT_PER_MINUTE: int = 60
