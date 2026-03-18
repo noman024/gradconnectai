@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Run the GradConnectAI migration (lab_focus, opportunity_score, experience_snippet).
-Uses SYNC_DATABASE_URL from .env. No psql required.
+Uses SYNC_DATABASE_URL from config/app.env. No psql required.
 """
 import os
 import sys
@@ -9,7 +9,8 @@ import sys
 from pathlib import Path
 
 backend_dir = Path(__file__).resolve().parent
-env_file = backend_dir / ".env"
+root_dir = backend_dir.parent
+env_file = root_dir / "config" / "app.env"
 if env_file.exists():
     with open(env_file) as f:
         for line in f:
@@ -19,13 +20,11 @@ if env_file.exists():
                 key, value = key.strip(), value.strip().strip("'\"")
                 os.environ.setdefault(key, value)
 
-url = os.environ.get("SYNC_DATABASE_URL") or os.environ.get("DATABASE_URL")
+url = os.environ.get("SYNC_DATABASE_URL")
 if not url:
-    print("Missing SYNC_DATABASE_URL or DATABASE_URL in .env", file=sys.stderr)
+    print("Missing SYNC_DATABASE_URL in config/app.env", file=sys.stderr)
     sys.exit(1)
 url = url.strip().strip("'\"")
-if "+asyncpg" in url:
-    url = url.replace("+asyncpg", "")
 if not url.startswith("postgresql://") and not url.startswith("postgres://"):
     print("Invalid connection URL: must start with postgresql:// or postgres://", file=sys.stderr)
     sys.exit(1)

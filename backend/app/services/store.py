@@ -95,38 +95,6 @@ def extraction_run_create(
         return str(run.id)
 
 
-def professor_evidence_create(
-    *,
-    professor_id: str,
-    url: str,
-    evidence_type: str,
-    evidence_value: str | None = None,
-    raw_match: str | None = None,
-    snippet: str | None = None,
-    selector: str | None = None,
-    confidence: float = 1.0,
-    source_document_id: str | None = None,
-    extraction_run_id: str | None = None,
-) -> str:
-    """Create a professor_evidence row and return its id."""
-    with get_session() as db:
-        ev = ProfessorEvidence(
-            professor_id=_uuid(professor_id),
-            source_document_id=_uuid(source_document_id) if source_document_id else None,
-            extraction_run_id=_uuid(extraction_run_id) if extraction_run_id else None,
-            url=url,
-            evidence_type=evidence_type,
-            evidence_value=evidence_value,
-            raw_match=raw_match,
-            snippet=snippet,
-            selector=selector,
-            confidence=float(confidence),
-        )
-        db.add(ev)
-        db.commit()
-        return str(ev.id)
-
-
 def student_set(student_id: str, data: dict[str, Any]) -> None:
     with get_session() as db:
         obj = Student(
@@ -269,11 +237,12 @@ def professor_get_by_name_university(name: str, university: str) -> dict[str, An
         }
 
 
-def professors_list() -> list[dict[str, Any]]:
+def professors_list(*, include_embedding: bool = False) -> list[dict[str, Any]]:
     with get_session() as db:
         rows = db.execute(select(Professor)).scalars().all()
-        return [
-            {
+        result: list[dict[str, Any]] = []
+        for p in rows:
+            item = {
                 "id": str(p.id),
                 "name": p.name,
                 "university": p.university,
@@ -282,12 +251,12 @@ def professors_list() -> list[dict[str, Any]]:
                 "lab_focus": p.lab_focus,
                 "research_topics": p.research_topics,
                 "opportunity_score": float(p.opportunity_score) if p.opportunity_score is not None else 0.5,
-                # Omit raw embedding from list endpoint to avoid pgvector serialization issues
-                # and reduce payload size; matching uses embeddings server-side only.
                 "sources": p.sources,
             }
-            for p in rows
-        ]
+            if include_embedding:
+                item["embedding"] = p.embedding
+            result.append(item)
+        return result
 
 
 def matches_upsert(student_id: str, professor_id: str, score: float, opportunity_score: float, final_rank: float) -> None:

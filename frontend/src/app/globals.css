@@ -43,15 +43,12 @@ body {
   font-weight: 700;
   letter-spacing: 0.04em;
   font-size: 1.1rem;
+  text-decoration: none;
+  color: var(--text-main);
 }
 
 .gc-logo span {
   color: var(--accent);
-}
-
-.gc-logo {
-  text-decoration: none;
-  color: var(--text-main);
 }
 
 .gc-nav {
@@ -248,17 +245,6 @@ body {
   color: var(--text-main);
 }
 
-.gc-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  border-radius: 999px;
-  padding: 0.15rem 0.65rem;
-  font-size: 0.75rem;
-  background: var(--accent-soft);
-  color: #e0f2fe;
-}
-
 .gc-list {
   list-style: none;
   padding: 0;
@@ -273,19 +259,6 @@ body {
   border: 1px solid rgba(148, 163, 184, 0.3);
   padding: 0.9rem 1rem;
   background: rgba(15, 23, 42, 0.9);
-}
-
-.gc-list-link {
-  text-decoration: none;
-  color: var(--text-main);
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.gc-list-link span.gc-meta {
-  font-size: 0.78rem;
-  color: var(--text-muted);
 }
 
 .gc-email-draft {
@@ -429,23 +402,6 @@ body {
 
 @keyframes gc-spin {
   to { transform: rotate(360deg); }
-}
-
-.gc-match-title {
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.gc-match-univ {
-  font-weight: 400;
-  color: var(--text-muted);
-}
-
-.gc-match-focus {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  display: block;
-  margin-top: 0.2rem;
 }
 
 .gc-copy-btn {

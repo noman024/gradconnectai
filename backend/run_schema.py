@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-Run the GradConnectAI database schema against the database in .env.
+Run the GradConnectAI database schema against the configured database.
 Uses SYNC_DATABASE_URL (postgresql://...). Enables pgvector then runs schema.sql.
 """
 import os
 import sys
 
-# Load .env from backend directory
 from pathlib import Path
+
 backend_dir = Path(__file__).resolve().parent
-env_file = backend_dir / ".env"
+root_dir = backend_dir.parent
+env_file = root_dir / "config" / "app.env"
 if env_file.exists():
     with open(env_file) as f:
         for line in f:
@@ -19,14 +20,11 @@ if env_file.exists():
                 key, value = key.strip(), value.strip().strip("'\"")
                 os.environ.setdefault(key, value)
 
-url = os.environ.get("SYNC_DATABASE_URL") or os.environ.get("DATABASE_URL")
+url = os.environ.get("SYNC_DATABASE_URL")
 if not url:
-    print("Missing SYNC_DATABASE_URL or DATABASE_URL in .env", file=sys.stderr)
+    print("Missing SYNC_DATABASE_URL in config/app.env", file=sys.stderr)
     sys.exit(1)
 url = url.strip().strip("'\"")
-# Use postgresql:// for psycopg2 (strip +asyncpg if present)
-if "+asyncpg" in url:
-    url = url.replace("+asyncpg", "")
 if not url.startswith("postgresql://") and not url.startswith("postgres://"):
     print("Invalid connection URL: must start with postgresql:// or postgres://", file=sys.stderr)
     print("Example (Supabase): postgresql://postgres.PROJECT_REF:YOUR_PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres", file=sys.stderr)

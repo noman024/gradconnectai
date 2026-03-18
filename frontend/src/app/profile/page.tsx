@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8009";
+import { API_BASE } from "@/lib/config";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -133,6 +132,7 @@ export default function ProfilePage() {
                 className="gc-textarea"
                 value={cvText}
                 onChange={(e) => setCvText(e.target.value)}
+                required
                 placeholder="Paste your CV or a detailed research summary here..."
               />
               <p className="gc-helper">We recommend at least a few paragraphs so the model has enough signal.</p>

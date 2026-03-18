@@ -6,12 +6,10 @@ records from Markdown instead of raw HTML when available.
 """
 from __future__ import annotations
 
-import asyncio
-import re
 from dataclasses import dataclass
 from typing import Iterable
-import os
 
+from app.core.config import settings
 from app.core.logging import get_logger
 
 try:
@@ -37,10 +35,7 @@ async def crawl_markdown(urls: Iterable[str]) -> list[Crawl4AIResult]:
 
     results: list[Crawl4AIResult] = []
 
-    # Allow debugging in a real browser when CRAWL4AI_HEADLESS=0 or =false
-    headless_env = os.getenv("CRAWL4AI_HEADLESS", "1").lower()
-    headless = not (headless_env in ("0", "false", "no"))
-    browser_config = BrowserConfig(headless=headless, verbose=True)
+    browser_config = BrowserConfig(headless=bool(settings.CRAWL4AI_HEADLESS), verbose=True)
 
     logger = get_logger("crawl4ai_client")
     try:
@@ -74,39 +69,4 @@ async def crawl_markdown(urls: Iterable[str]) -> list[Crawl4AIResult]:
         logger.error("crawl4ai_start_failed", error=str(exc))
         return []
     return results
-
-
-def extract_name_lines(markdown: str) -> list[str]:
-    """
-    Very simple heuristic over Markdown to find name-like lines:
-    - Not too long
-    - 2–5 words
-    - Mostly capitalized words
-    """
-    candidates: list[str] = []
-    for line in markdown.splitlines():
-        line = line.strip()
-        if not line or "@" in line or len(line) > 80:
-            continue
-        # Skip obvious headings with numbers or bullets
-        if line.startswith(("#", "-", "*", ">")):
-            line = line.lstrip("#-* >").strip()
-        parts = line.split()
-        if not (2 <= len(parts) <= 5):
-            continue
-        if not any(p[0].isupper() for p in parts if p.isalpha()):
-            continue
-        if sum(1 for p in parts if p and p[0].isupper()) < len(parts) / 2:
-            continue
-        candidates.append(line)
-    # Deduplicate while preserving order
-    seen = set()
-    out: list[str] = []
-    for c in candidates:
-        key = c.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(c)
-    return out
 

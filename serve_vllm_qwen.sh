@@ -8,13 +8,13 @@ set -euo pipefail
 #   ./serve_vllm_qwen.sh            # port 8010
 #   ./serve_vllm_qwen.sh 9000       # custom port
 #
-# Then set in backend/.env:
+# Then set in config/app.env:
 #   LLM_BASE_URL=http://localhost:8010/v1
 #   LLM_API_KEY=EMPTY
-#   LLM_MODEL=Qwen/Qwen3.5-9B
+#   LLM_MODEL=Qwen/Qwen3.5-0.8B
 
 PORT="${1:-8010}"
-MODEL="${VLLM_MODEL:-Qwen/Qwen3.5-9B}"
+MODEL="${VLLM_MODEL:-Qwen/Qwen3.5-0.8B}"
 
 # Prefer pip-installed vllm (more stable) over repo clone
 if command -v vllm &>/dev/null; then

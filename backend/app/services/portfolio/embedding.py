@@ -10,9 +10,6 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.models import EMBEDDING_DIM
 
-# Default model version for embedding_model_version column
-EMBEDDING_MODEL_VERSION = "nomic-embed-text-v1"
-
 _st_model: Optional[Any] = None
 _st_device: Optional[str] = None
 
@@ -95,7 +92,6 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
                 out.append(vec)
         return out
     except Exception as exc:
-        logger = get_logger("embedding_service")
         logger.warning("ollama_embedding_failed", error=str(exc))
         pass
     # Placeholder: zero vector so pipeline doesn't break

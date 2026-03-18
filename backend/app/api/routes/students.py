@@ -7,6 +7,7 @@ from app.services.portfolio.analyzer import analyze_portfolio
 from app.services.portfolio.pdf_extractor import extract_text_from_pdf_stream
 from app.services.store import student_set, student_get, generate_id
 from app.core.rate_limit import limiter
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -45,7 +46,7 @@ async def create_student_and_analyze(request: Request, body: StudentCreate):
 
 
 @router.post("/upload", response_model=PortfolioAnalyzeResponse)
-@limiter.limit("10/minute")
+@limiter.limit(f"{settings.API_RATE_LIMIT_UPLOAD_PER_MINUTE}/minute")
 async def upload_cv_and_analyze(
     request: Request,
     name: str = Form(...),

@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, use } from "react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8009";
 import Link from "next/link";
+import { API_BASE } from "@/lib/config";
 
 export default function EmailDraftPage({ params }: { params: Promise<{ professorId: string }> }) {
   const { professorId } = use(params);

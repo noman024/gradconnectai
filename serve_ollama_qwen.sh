@@ -5,9 +5,9 @@
 # 1. Install Ollama: brew install ollama
 # 2. Run: ollama serve   (or start Ollama app)
 # 3. Pull model: ollama pull qwen3.5:0.8b
-# 4. Set in backend/.env:
-#    LLM_BASE_URL=http://localhost:11435/v1
-#    LLM_MODEL=qwen3.5:0.8b
+# 4. Set in config/app.env:
+#    LLM_BASE_URL=http://localhost:11434/v1
+#    LLM_MODEL=frob/qwen3.5-instruct:9b
 #
 # This script just pulls the model if needed. Ollama must be running separately.
 
@@ -25,6 +25,6 @@ ollama pull frob/qwen3.5-instruct:9b
 
 echo ""
 echo "Done. Ensure Ollama is running (ollama serve or Ollama app)."
-echo "Set in backend/.env:"
-echo "  LLM_BASE_URL=http://localhost:11435/v1"
+echo "Set in config/app.env:"
+echo "  LLM_BASE_URL=http://localhost:11434/v1"
 echo "  LLM_MODEL=frob/qwen3.5-instruct:9b"

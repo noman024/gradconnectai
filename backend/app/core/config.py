@@ -1,13 +1,21 @@
 """Application configuration."""
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+ROOT_DIR = Path(__file__).resolve().parents[3]
+CONFIG_ENV_FILE = ROOT_DIR / "config" / "app.env"
 
-    DATABASE_URL: str = "postgresql+asyncpg://localhost/gradconnect"
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=(str(CONFIG_ENV_FILE),),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     SYNC_DATABASE_URL: str = "postgresql://localhost/gradconnect"
-    API_SECRET_KEY: str = "change-me"
     ENVIRONMENT: str = "development"
     CORS_ORIGINS: str = "http://localhost:3000"
 
@@ -33,13 +41,6 @@ class Settings(BaseSettings):
     LLM_MAX_OUTPUT_TOKENS_EMAIL: int = 768
 
     CRAWL4AI_HEADLESS: bool = True
-
-    CRAWLER_REQUESTS_PER_MINUTE: int = 30
-    CRAWLER_GLOBAL_REQUESTS_PER_MINUTE: int = 120
-
-    CV_RETENTION_DAYS: int = 365
-    MATCH_RETENTION_DAYS: int = 730
-    EMAIL_DRAFT_RETENTION_DAYS: int = 90
 
     # API rate limiting (requests per minute per IP)
     API_RATE_LIMIT_PER_MINUTE: int = 60

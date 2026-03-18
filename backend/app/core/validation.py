@@ -5,14 +5,14 @@ from __future__ import annotations
 
 import re
 
+from app.core.config import settings
+
 # Max lengths and sizes
 MAX_CV_TEXT_LENGTH = 100_000
 MAX_NAME_LENGTH = 200
 MAX_PREFERENCES_FIELDS = 50
 MAX_PREFERENCE_ITEM_LENGTH = 100
-MAX_URL_LENGTH = 2048
-ALLOWED_CV_EXTENSIONS = {".pdf", ".txt"}
-MAX_CV_FILE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
+MAX_CV_FILE_SIZE_BYTES = settings.MAX_CV_FILE_SIZE_MB * 1024 * 1024
 
 
 def validate_name(name: str) -> str | None:

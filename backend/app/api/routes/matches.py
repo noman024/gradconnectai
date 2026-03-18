@@ -14,7 +14,7 @@ def _compute_and_store_matches(student_id: str) -> list[MatchResult]:
     if not student:
         logger.info("matches_student_missing", student_id=student_id)
         return []
-    professors = professors_list()
+    professors = professors_list(include_embedding=True)
     if not professors:
         logger.info("matches_no_professors", student_id=student_id)
         return []
@@ -69,7 +69,7 @@ async def list_matches(student_id: str):
     existing = matches_for_student(student_id)
     student_emb = student.get("embedding")
     has_embedding = student_emb is not None and len(student_emb) > 0
-    profs = professors_list()
+    profs = professors_list(include_embedding=True)
     if not existing and has_embedding and len(profs) > 0:
         results = _compute_and_store_matches(student_id)
         logger.info("matches_returned", student_id=student_id, count=len(results), from_cache=False)

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from app.core.logging import get_logger
 from app.services.llm_client import extract_topics_from_cv
-from app.services.portfolio.embedding import embed_single, embed_texts, get_embedding_model_version
+from app.services.portfolio.embedding import embed_single, get_embedding_model_version
 
 
 @dataclass

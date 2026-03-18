@@ -4,13 +4,11 @@ Stores last_checked and active_flag when persisting to DB (see crawler.last_chec
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
 from app.core.logging import get_logger
-from app.services.discovery.crawler import DiscoveryCrawler, CrawlResult
 from app.services.discovery.crawl4ai_client import crawl_markdown
 from app.services.llm_client import extract_professors_from_markdown
 
