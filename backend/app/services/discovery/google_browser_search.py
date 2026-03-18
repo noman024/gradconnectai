@@ -7,7 +7,13 @@ from typing import Any
 from urllib.parse import urlparse
 
 from app.core.config import settings
-from app.services.discovery.google_search import build_google_search_url, extract_google_result_links_from_html
+from app.services.discovery.google_search import (
+    build_google_search_url,
+    extract_google_result_links_from_html,
+    extract_http_links_from_html,
+    build_duckduckgo_search_url,
+    google_search_collect_links,
+)
 
 try:
     from playwright.async_api import async_playwright  # type: ignore
@@ -53,7 +59,23 @@ async def google_search_collect_links_browser(
     dedup: dict[str, dict[str, Any]] = {}
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=bool(settings.GOOGLE_BROWSER_HEADLESS))
+        try:
+            browser = await p.chromium.launch(headless=bool(settings.GOOGLE_BROWSER_HEADLESS))
+        except Exception as exc:
+            # Headed mode may fail in server environments without DISPLAY.
+            fallback = await google_search_collect_links(
+                queries,
+                max_links_per_query=n,
+            )
+            return {
+                "engine": "playwright",
+                "available": False,
+                "error": f"playwright_launch_failed:{type(exc).__name__}",
+                "queries_count": fallback.get("queries_count"),
+                "per_query": fallback.get("per_query"),
+                "deduped_results": fallback.get("deduped_results"),
+                "total_deduped": fallback.get("total_deduped"),
+            }
         context = await browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -77,6 +99,36 @@ async def google_search_collect_links_browser(
                     await page.wait_for_timeout(int(settings.GOOGLE_BROWSER_WAIT_MS))
                     html = await page.content()
                     links = extract_google_result_links_from_html(html)[:n]
+                    if not links:
+                        # Secondary browser extractor: read anchors directly from DOM.
+                        hrefs = await page.eval_on_selector_all(
+                            "a",
+                            "els => els.map(e => e.getAttribute('href') || '').filter(Boolean)",
+                        )
+                        direct = []
+                        for h in hrefs:
+                            hs = str(h).strip()
+                            if hs.startswith("/url?q="):
+                                hs = hs[len("/url?q="):].split("&", 1)[0]
+                            if hs.startswith("http://") or hs.startswith("https://"):
+                                direct.append(hs)
+                        if direct:
+                            # Dedup preserve order.
+                            seen: set[str] = set()
+                            deduped: list[str] = []
+                            for u in direct:
+                                if u in seen:
+                                    continue
+                                seen.add(u)
+                                deduped.append(u)
+                            links = deduped[:n]
+                    if not links:
+                        # Provider fallback: DDG HTML to keep endpoint productive.
+                        import httpx
+                        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                            ddg = await client.get(build_duckduckgo_search_url(query))
+                            if ddg.status_code == 200:
+                                links = extract_http_links_from_html(ddg.text)[:n]
                     for idx, link in enumerate(links, start=1):
                         host = urlparse(link).netloc.lower()
                         item = {

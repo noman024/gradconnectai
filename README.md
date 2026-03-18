@@ -126,6 +126,7 @@ npm run dev
 | `GOOGLE_BROWSER_WAIT_MS` | Post-load wait before parsing search results |
 | `LINKEDIN_SESSION_TTL_MINUTES` | LinkedIn discovery session TTL |
 | `LINKEDIN_MAX_RESULTS_PER_QUERY` | Max LinkedIn links kept per query |
+| `LINKEDIN_LI_AT` | Optional LinkedIn `li_at` cookie for authenticated LinkedIn discovery |
 
 ## LLM Backend Options (Ollama and vLLM)
 
@@ -206,7 +207,7 @@ curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/run \
 # Discovery query plan from student profile signal
 curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/query-plan \
   -H "Content-Type: application/json" \
-  -d '{"research_topics":["machine learning","NLP"],"preferences":{"universities":["UIU"],"countries":["Bangladesh"]}}' | jq .
+  -d '{"research_topics":["machine learning","NLP"],"preferences":{"universities":["UIU"],"countries":["Bangladesh"],"degree_targets":["MS","PhD"]}}' | jq .
 
 # Google ingestion MVP (collect + dedupe + score links)
 curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/google-search \
@@ -227,6 +228,11 @@ curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/linkedin-discovery \
 curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/harvest \
   -H "Content-Type: application/json" \
   -d '{"research_topics":["machine learning","NLP"],"preferences":{"universities":["UIU"],"countries":["Bangladesh"]},"use_browser_google":true,"max_queries_per_source":4,"max_links_per_query":8,"top_k":20}' | jq .
+
+# Verified-only harvest mode (drops noisy/unverified links)
+curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/harvest \
+  -H "Content-Type: application/json" \
+  -d '{"research_topics":["machine learning","NLP"],"preferences":{"universities":["UIU"],"countries":["Bangladesh"],"degree_targets":["MS","PhD"]},"verified_only":true,"use_browser_google":true,"max_queries_per_source":4,"max_links_per_query":8,"top_k":20}' | jq .
 
 # Matches
 curl -s "http://127.0.0.1:8009/api/v1/matches?student_id=$STUDENT_ID" | jq .

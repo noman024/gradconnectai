@@ -19,6 +19,13 @@ from urllib.parse import quote_plus
 import httpx
 
 from app.core.config import settings
+from app.services.discovery.google_search import (
+    extract_http_links_from_html,
+    build_duckduckgo_search_url,
+    build_bing_search_url,
+    build_bing_rss_search_url,
+    extract_links_from_bing_rss,
+)
 
 
 def _utcnow() -> datetime:
@@ -39,6 +46,8 @@ def _classify_linkedin_url(url: str) -> str:
         return "profile"
     if "/posts/" in u or "/feed/update/" in u:
         return "post"
+    if "/jobs/" in u:
+        return "jobs"
     if "/company/" in u:
         return "company"
     if "/school/" in u:
@@ -163,9 +172,10 @@ async def discover_linkedin_candidates(
     max_links_per_query: int | None = None,
 ) -> dict[str, Any]:
     _purge_expired_sessions()
+    li_at_effective = li_at_cookie or (getattr(settings, "LINKEDIN_LI_AT", None) or "").strip() or None
     session_meta = get_or_create_linkedin_session(
         session_id=session_id,
-        li_at_cookie=li_at_cookie,
+        li_at_cookie=li_at_effective,
     )
 
     n = max_links_per_query
@@ -180,8 +190,8 @@ async def discover_linkedin_candidates(
         ),
         "Accept-Language": "en-US,en;q=0.9",
     }
-    if li_at_cookie:
-        headers["Cookie"] = f"li_at={li_at_cookie}"
+    if li_at_effective:
+        headers["Cookie"] = f"li_at={li_at_effective}"
 
     by_query: dict[str, list[dict[str, Any]]] = {}
     dedup: dict[str, dict[str, Any]] = {}
@@ -192,8 +202,8 @@ async def discover_linkedin_candidates(
             query = (raw_query or "").strip()
             if not query:
                 continue
-            # Push discovery towards LinkedIn profile/post sources.
-            linkedin_query = f"{query} site:linkedin.com/in OR site:linkedin.com/posts"
+            # Push discovery towards LinkedIn sources (profiles, posts, jobs, companies).
+            linkedin_query = f"{query} site:linkedin.com"
             search_url = _google_query_url(linkedin_query, n)
             items: list[dict[str, Any]] = []
             try:
@@ -203,6 +213,28 @@ async def discover_linkedin_candidates(
                 html = ""
 
             links = _extract_google_links(html)
+            if not links:
+                # Fallback provider for robustness in regions where Google results are hard to parse.
+                try:
+                    ddg = await client.get(build_duckduckgo_search_url(linkedin_query))
+                    if ddg.status_code == 200:
+                        links = extract_http_links_from_html(ddg.text)
+                except Exception:
+                    links = []
+            if not links:
+                try:
+                    bing = await client.get(build_bing_search_url(linkedin_query, num=n))
+                    if bing.status_code == 200:
+                        links = extract_http_links_from_html(bing.text)
+                except Exception:
+                    links = []
+            if not links:
+                try:
+                    bing_rss = await client.get(build_bing_rss_search_url(linkedin_query))
+                    if bing_rss.status_code == 200:
+                        links = extract_links_from_bing_rss(bing_rss.text)
+                except Exception:
+                    links = []
             rank = 1
             for link in links:
                 if "linkedin.com" not in link.lower():

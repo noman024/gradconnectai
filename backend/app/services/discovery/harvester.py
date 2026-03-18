@@ -19,6 +19,20 @@ from app.services.discovery.google_browser_search import google_search_collect_l
 from app.services.discovery.linkedin_discovery import discover_linkedin_candidates
 
 
+_NOISY_HOST_KEYWORDS = (
+    "wikipedia.org",
+    "youtube.com",
+    "facebook.com",
+    "instagram.com",
+    "pinterest.",
+    "reddit.com",
+    "quora.com",
+    "zhihu.com",
+    "baidu.com",
+    "stackoverflow.com",
+)
+
+
 def _clean_urls(items: list[dict[str, Any]], source: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for item in items or []:
@@ -45,6 +59,48 @@ def _clean_urls(items: list[dict[str, Any]], source: str) -> list[dict[str, Any]
             }
         )
     return out
+
+
+def _verification_reason(item: dict[str, Any]) -> str | None:
+    host = str(item.get("host") or "").lower()
+    url = str(item.get("url") or "").lower()
+    source = str(item.get("source") or "")
+    kind = str(item.get("kind") or "").lower()
+
+    if not host:
+        return None
+    if any(n in host for n in _NOISY_HOST_KEYWORDS):
+        return None
+    if "linkedin.com" in host:
+        if kind in {"post", "profile", "jobs", "company", "school"}:
+            return f"linkedin_{kind}"
+        if "/jobs/" in url:
+            return "linkedin_jobs"
+        return None
+    if ".edu" in host or ".ac." in host:
+        if any(k in url for k in ("/faculty", "/people", "/lab", "/research", "/department", "/professor")):
+            return "academic_domain_research_page"
+        return "academic_domain"
+    # Trust targeted search sources when URL pattern looks opportunity-relevant.
+    if source in {"google_http", "google_browser"} and any(
+        k in url for k in ("phd", "postdoc", "funded", "scholarship", "admission", "graduate")
+    ):
+        return "search_engine_opportunity_pattern"
+    return None
+
+
+def _apply_verified_filter(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    verified: list[dict[str, Any]] = []
+    dropped = 0
+    for item in items:
+        reason = _verification_reason(item)
+        if not reason:
+            dropped += 1
+            continue
+        enriched = dict(item)
+        enriched["verification_reason"] = reason
+        verified.append(enriched)
+    return verified, dropped
 
 
 def _merge_ranked_url_items(
@@ -101,6 +157,7 @@ async def run_automated_search_harvester(
     max_queries_per_source: int = 6,
     max_links_per_query: int = 10,
     top_k: int = 40,
+    verified_only: bool = False,
     linkedin_session_id: str | None = None,
     linkedin_li_at_cookie: str | None = None,
 ) -> dict[str, Any]:
@@ -140,6 +197,26 @@ async def run_automated_search_harvester(
         li_at_cookie=linkedin_li_at_cookie,
         max_links_per_query=max_links_per_query,
     )
+    if int(linkedin.get("total_ranked") or 0) <= 0:
+        keywords = list(plan.get("keywords") or [])
+        fallback_li_queries = []
+        fallback_li_queries.extend(
+            [
+                "machine learning professor hiring",
+                "artificial intelligence professor jobs",
+                "nlp phd position",
+            ]
+        )
+        for kw in keywords[:4]:
+            fallback_li_queries.append(f"{kw} professor hiring jobs")
+            fallback_li_queries.append(f"{kw} phd openings")
+        if fallback_li_queries:
+            linkedin = await discover_linkedin_candidates(
+                queries=fallback_li_queries[: max(6, max_queries_per_source + 2)],
+                session_id=(linkedin.get("session") or {}).get("session_id") or linkedin_session_id,
+                li_at_cookie=linkedin_li_at_cookie,
+                max_links_per_query=max_links_per_query,
+            )
     linkedin_items = _clean_urls(linkedin.get("ranked_results") or [], "linkedin")
 
     merged = _merge_ranked_url_items(
@@ -147,14 +224,22 @@ async def run_automated_search_harvester(
         google_browser_items=google_browser_items,
         linkedin_items=linkedin_items,
     )
+    dropped_unverified = 0
+    if verified_only:
+        merged, dropped_unverified = _apply_verified_filter(merged)
     merged = merged[: max(1, int(top_k))]
 
     return {
+        "verified_only": bool(verified_only),
         "query_plan": plan,
         "sources": {
             "google_http_total": len(google_http_items),
             "google_browser_total": len(google_browser_items),
             "linkedin_total": len(linkedin_items),
+        },
+        "quality": {
+            "dropped_unverified": dropped_unverified,
+            "verified_count": len(merged),
         },
         "google_http": {
             "queries_count": google_http.get("queries_count"),

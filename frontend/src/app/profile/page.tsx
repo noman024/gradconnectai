@@ -11,6 +11,7 @@ export default function ProfilePage() {
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [usePdf, setUsePdf] = useState(true);
   const [fields, setFields] = useState("");
+  const [degreeTargets, setDegreeTargets] = useState("MS, PhD");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -24,6 +25,7 @@ export default function ProfilePage() {
         countries: [] as string[],
         universities: [] as string[],
         fields: fields.split(",").map((s) => s.trim()).filter(Boolean),
+        degree_targets: degreeTargets.split(",").map((s) => s.trim()).filter(Boolean),
       };
 
       if (usePdf && cvFile) {
@@ -152,6 +154,21 @@ export default function ProfilePage() {
               placeholder="e.g. machine learning, NLP, causal inference"
             />
             <p className="gc-helper">Used as an additional signal for topic extraction and filtering.</p>
+          </div>
+
+          <div className="gc-input-row">
+            <label className="gc-label" htmlFor="degreeTargets">
+              Target degrees (comma-separated)
+            </label>
+            <input
+              id="degreeTargets"
+              className="gc-input"
+              type="text"
+              value={degreeTargets}
+              onChange={(e) => setDegreeTargets(e.target.value)}
+              placeholder="e.g. MS, PhD, Postdoc"
+            />
+            <p className="gc-helper">Used to generate discovery queries like funded scholarships by degree.</p>
           </div>
 
           {error && <p className="gc-error">{error}</p>}

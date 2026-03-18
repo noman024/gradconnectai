@@ -5,11 +5,12 @@ from typing import Union
 from pydantic import BaseModel, Field
 
 # Documented shape for preferences (plan)
-# { "countries": [], "universities": [], "fields": [] }
+# { "countries": [], "universities": [], "fields": [], "degree_targets": [] }
 class StudentPreferences(BaseModel):
     countries: list = Field(default_factory=list, description="Preferred countries")
     universities: list = Field(default_factory=list, description="Preferred universities")
     fields: list = Field(default_factory=list, description="Research fields")
+    degree_targets: list = Field(default_factory=list, description="Target degrees (e.g. MS, PhD)")
 
 
 class StudentCreate(BaseModel):

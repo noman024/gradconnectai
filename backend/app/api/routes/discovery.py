@@ -67,6 +67,7 @@ class DiscoveryHarvestRequest(BaseModel):
     max_queries_per_source: int = 6
     max_links_per_query: int = 10
     top_k: int = 40
+    verified_only: bool = False
     linkedin_session_id: str | None = None
     linkedin_li_at_cookie: str | None = None
 
@@ -276,6 +277,7 @@ async def discovery_harvest(body: DiscoveryHarvestRequest):
         max_queries_per_source=body.max_queries_per_source,
         max_links_per_query=body.max_links_per_query,
         top_k=body.top_k,
+        verified_only=body.verified_only,
         linkedin_session_id=body.linkedin_session_id,
         linkedin_li_at_cookie=body.linkedin_li_at_cookie,
     )

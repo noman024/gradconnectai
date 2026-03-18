@@ -37,7 +37,7 @@ def validate_cv_text(cv_text: str) -> str | None:
 def validate_preferences(preferences: dict) -> str | None:
     if not isinstance(preferences, dict):
         return "Preferences must be an object"
-    for key in ("countries", "universities", "fields"):
+    for key in ("countries", "universities", "fields", "degree_targets"):
         if key in preferences and not isinstance(preferences[key], list):
             return f"preferences.{key} must be an array"
         if key in preferences:

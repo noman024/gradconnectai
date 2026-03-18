@@ -44,10 +44,14 @@ def build_discovery_query_plan(
     topics = _uniq_keep_order(list(research_topics or []) + list(prefs.get("fields") or []))
     universities = _uniq_keep_order(list(prefs.get("universities") or []))
     countries = _uniq_keep_order(list(prefs.get("countries") or []))
+    degree_targets = _uniq_keep_order(list(prefs.get("degree_targets") or []))
+    if not degree_targets:
+        degree_targets = ["MS", "PhD"]
 
     top_topics = _first_n(topics, 8)
     top_universities = _first_n(universities, 4)
     top_countries = _first_n(countries, 3)
+    top_degrees = _first_n(degree_targets, 3)
 
     google_queries: list[str] = []
     linkedin_queries: list[str] = []
@@ -56,8 +60,24 @@ def build_discovery_query_plan(
     for t in top_topics[:6]:
         google_queries.append(f'"{t}" professor "open position"')
         google_queries.append(f'site:.edu "{t}" "PhD position"')
-        linkedin_queries.append(f'"{t}" professor postdoc OR phd hiring site:linkedin.com')
+        linkedin_queries.append(f'site:linkedin.com/posts "{t}" professor phd hiring')
+        linkedin_queries.append(f'site:linkedin.com "{t}" professor postdoc OR phd hiring')
         keywords.append(t)
+
+    for d in top_degrees:
+        for t in top_topics[:4] or ["artificial intelligence"]:
+            if top_countries:
+                for c in top_countries:
+                    google_queries.append(f'"{d}" in "{t}" "{c}"')
+                    google_queries.append(f'"fully funded" "{d}" in "{t}" "{c}"')
+                    google_queries.append(f'"scholarship" "{d}" in "{t}" "{c}"')
+            else:
+                google_queries.append(f'"{d}" in "{t}"')
+                google_queries.append(f'"fully funded" "{d}" in "{t}"')
+                google_queries.append(f'"scholarship" "{d}" in "{t}"')
+            linkedin_queries.append(f'site:linkedin.com/posts "{d}" "{t}" funded scholarship')
+            linkedin_queries.append(f'site:linkedin.com "{d}" "{t}" university hiring')
+            keywords.append(d)
 
     for u in top_universities:
         google_queries.append(f'"{u}" faculty "{top_topics[0] if top_topics else "research"}"')
@@ -76,5 +96,6 @@ def build_discovery_query_plan(
             "topics_count": len(top_topics),
             "universities_count": len(top_universities),
             "countries_count": len(top_countries),
+            "degree_targets_count": len(top_degrees),
         },
     }

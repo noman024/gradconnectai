@@ -50,3 +50,36 @@ def test_run_automated_search_harvester_with_stubbed_sources(monkeypatch):
     assert out["total_seed_urls"] >= 2
     assert out["seed_urls"][0].startswith("http")
     assert "query_plan" in out
+
+
+def test_verified_filter_drops_noisy_domains():
+    items = [
+        {
+            "url": "https://en.wikipedia.org/wiki/ML",
+            "host": "en.wikipedia.org",
+            "score": 1.0,
+            "source": "google_http",
+            "query": "q",
+            "kind": None,
+        },
+        {
+            "url": "https://www.linkedin.com/jobs/view/123",
+            "host": "www.linkedin.com",
+            "score": 0.8,
+            "source": "linkedin",
+            "query": "q2",
+            "kind": "jobs",
+        },
+        {
+            "url": "https://cs.example.edu/faculty",
+            "host": "cs.example.edu",
+            "score": 0.7,
+            "source": "google_http",
+            "query": "q3",
+            "kind": None,
+        },
+    ]
+    verified, dropped = harvester._apply_verified_filter(items)
+    assert dropped == 1
+    assert len(verified) == 2
+    assert all(v.get("verification_reason") for v in verified)
