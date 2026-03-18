@@ -429,6 +429,88 @@ def extract_professors_from_markdown(
                     "_evidence": evidence,
                 }
             )
+        if not cleaned and len(parsed.professors) == 0:
+            # Source-grounded fallback: extract likely faculty names directly from markdown links.
+            import re as _re
+
+            page_emails = _extract_emails_with_obfuscation(truncated_md)
+            link_pattern = _re.compile(r"\[([^\]]{3,140})\]\((https?://[^)\s]+)\)")
+            seen_fallback: set[tuple[str, str]] = set()
+            for link_text, link_url in link_pattern.findall(truncated_md):
+                text = " ".join((link_text or "").strip().split())
+                url = (link_url or "").strip()
+                if not text or not url:
+                    continue
+                # Detect a plausible faculty name from the link text.
+                name_match = _re.search(
+                    r"((?:Dr\.|Professor|Prof\.)\s+[A-Z][A-Za-z\-.]+(?:\s+[A-Z][A-Za-z\-.]+){0,6})",
+                    text,
+                )
+                name = name_match.group(1).strip() if name_match else ""
+                if not name:
+                    # Secondary pattern for title-case names on faculty/profile links.
+                    if any(k in url.lower() for k in ("faculty", "profile", "people", "/in/")):
+                        tokens = [t for t in _re.split(r"\s+", text) if t]
+                        if 2 <= len(tokens) <= 6 and all(
+                            (t[0].isupper() if t and t[0].isalpha() else False) for t in tokens
+                        ):
+                            name = " ".join(tokens)
+                if not name:
+                    continue
+                key = (name.lower(), url.lower())
+                if key in seen_fallback:
+                    continue
+                seen_fallback.add(key)
+
+                # Preserve evidence gate discipline:
+                # - if page has emails, require at least one captured email from page (global signal).
+                # - otherwise accept profile URL present in source (this link itself).
+                email_val = next(iter(page_emails), None) if page_emails else None
+                evidence = [
+                    {
+                        "url": page_url,
+                        "evidence_type": "name",
+                        "evidence_value": name,
+                        "raw_match": name,
+                        "snippet": _find_snippet(truncated_md, name) or _find_snippet(truncated_md, text),
+                        "selector": "markdown:text",
+                        "confidence": 0.7,
+                    },
+                    {
+                        "url": page_url,
+                        "evidence_type": "profile_url",
+                        "evidence_value": url,
+                        "raw_match": url,
+                        "snippet": _find_snippet(truncated_md, url) or _find_snippet(truncated_md, text),
+                        "selector": "markdown:link",
+                        "confidence": 0.9,
+                    },
+                ]
+                if email_val:
+                    evidence.append(
+                        {
+                            "url": page_url,
+                            "evidence_type": "email",
+                            "evidence_value": email_val,
+                            "raw_match": email_val,
+                            "snippet": _find_snippet(truncated_md, email_val),
+                            "selector": "markdown:text",
+                            "confidence": 0.6,
+                        }
+                    )
+                cleaned.append(
+                    {
+                        "name": name,
+                        "email": email_val,
+                        "profile_url": url,
+                        "lab_focus": None,
+                        "research_topics": [],
+                        "opportunity_score": 0.5,
+                        "opportunities": [],
+                        "opportunity_explanation": None,
+                        "_evidence": evidence,
+                    }
+                )
         logger.info("llm_profs_extracted", count=len(cleaned), sample=[c["name"] for c in cleaned[:3]])
         return cleaned or None
     except ValidationError as exc:

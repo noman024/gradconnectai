@@ -121,6 +121,7 @@ npm run dev
 | `LLM_MAX_OUTPUT_TOKENS_PROFESSORS` | Output cap for professor extraction |
 | `LLM_MAX_OUTPUT_TOKENS_EMAIL` | Output cap for email generation |
 | `CRAWL4AI_HEADLESS` | Crawl4AI browser mode (`1` headless, `0` visible) |
+| `CRAWL4AI_FORCE_HEADLESS_IF_NO_DISPLAY` | Auto-force headless if no `DISPLAY`/`WAYLAND_DISPLAY` is available |
 | `GOOGLE_BROWSER_HEADLESS` | Browser ingestion headless mode |
 | `GOOGLE_BROWSER_TIMEOUT_MS` | Browser navigation timeout for Google ingestion |
 | `GOOGLE_BROWSER_WAIT_MS` | Post-load wait before parsing search results |

@@ -6,6 +6,7 @@ records from Markdown instead of raw HTML when available.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -35,9 +36,18 @@ async def crawl_markdown(urls: Iterable[str]) -> list[Crawl4AIResult]:
 
     results: list[Crawl4AIResult] = []
 
-    browser_config = BrowserConfig(headless=bool(settings.CRAWL4AI_HEADLESS), verbose=True)
-
     logger = get_logger("crawl4ai_client")
+    headless_mode = bool(settings.CRAWL4AI_HEADLESS)
+    if (
+        not headless_mode
+        and bool(getattr(settings, "CRAWL4AI_FORCE_HEADLESS_IF_NO_DISPLAY", True))
+        and not (os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY"))
+    ):
+        # Avoid hard crashes in server environments without a display.
+        logger.warning("crawl4ai_no_display_forced_headless")
+        headless_mode = True
+
+    browser_config = BrowserConfig(headless=headless_mode, verbose=True)
     try:
         async with AsyncWebCrawler(config=browser_config) as crawler:
             for url in urls:

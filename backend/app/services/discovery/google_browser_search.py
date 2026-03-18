@@ -129,6 +129,10 @@ async def google_search_collect_links_browser(
                             ddg = await client.get(build_duckduckgo_search_url(query))
                             if ddg.status_code == 200:
                                 links = extract_http_links_from_html(ddg.text)[:n]
+                    if not links:
+                        # Final fallback: reuse robust non-browser collector (Google/DDG/Bing RSS chain).
+                        non_browser = await google_search_collect_links([query], max_links_per_query=n)
+                        links = [str(x.get("url") or "") for x in (non_browser.get("deduped_results") or []) if x.get("url")][:n]
                     for idx, link in enumerate(links, start=1):
                         host = urlparse(link).netloc.lower()
                         item = {
