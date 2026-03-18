@@ -1,8 +1,11 @@
-"""Trigger discovery pipeline and ingest professors into store."""
+"""Trigger discovery pipeline and optionally dry-run extraction without writes."""
 from fastapi import APIRouter
 from pydantic import BaseModel
+from typing import Any
 
 from app.services.discovery.pipeline import run_university_lab_pipeline
+from app.services.discovery.query_planner import build_discovery_query_plan
+from app.services.discovery.google_search import google_search_collect_links
 from app.services.store import (
     professor_set,
     professor_get_by_name_university,
@@ -10,6 +13,7 @@ from app.services.store import (
     opportunity_create_basic,
     source_document_create,
     extraction_run_create,
+    student_get,
 )
 from app.db.models import OpportunityType
 from app.services.portfolio.embedding import embed_single, get_embedding_model_version
@@ -23,12 +27,51 @@ router = APIRouter()
 class DiscoverySeedRequest(BaseModel):
     seed_urls: list[str]
     university_name: str
+    dry_run: bool = False
+
+
+class DiscoveryQueryPlanRequest(BaseModel):
+    student_id: str | None = None
+    cv_text: str | None = None
+    preferences: dict | None = None
+    research_topics: list[str] | None = None
+
+
+class GoogleSearchIngestionRequest(BaseModel):
+    queries: list[str]
+    max_links_per_query: int = 10
 
 
 @router.post("/run")
 async def run_discovery(body: DiscoverySeedRequest):
     """Crawl seed URLs, extract professors, embed and store them. Deduplicates by name+university."""
     raw_list = await run_university_lab_pipeline(body.seed_urls, body.university_name)
+    if body.dry_run:
+        candidates: list[dict[str, Any]] = []
+        for r in raw_list:
+            candidates.append(
+                {
+                    "name": r.name,
+                    "university": r.university,
+                    "email": r.email,
+                    "profile_url": r.profile_url,
+                    "lab_url": r.lab_url,
+                    "lab_focus": r.lab_focus,
+                    "research_topics": r.research_topics,
+                    "sources": r.sources,
+                    "last_checked": r.last_checked.isoformat() if r.last_checked else None,
+                    "active_flag": r.active_flag,
+                    "opportunity_score": r.opportunity_score,
+                    "evidence": r.evidence or [],
+                }
+            )
+        return {
+            "dry_run": True,
+            "ingested": 0,
+            "would_ingest": len(candidates),
+            "candidates": candidates,
+        }
+
     version = get_embedding_model_version()
     ingested = 0
     for r in raw_list:
@@ -96,4 +139,47 @@ async def run_discovery(body: DiscoverySeedRequest):
             # Discovery should not fail just because opportunity persistence failed.
             pass
         ingested += 1
-    return {"ingested": ingested}
+    return {"dry_run": False, "ingested": ingested}
+
+
+@router.post("/query-plan")
+async def discovery_query_plan(body: DiscoveryQueryPlanRequest):
+    """
+    Build discovery search queries from student profile signal.
+    Accepts explicit topics/preferences and can also read by student_id.
+    """
+    topics: list[str] = list(body.research_topics or [])
+    prefs: dict[str, Any] = dict(body.preferences or {})
+
+    if body.student_id:
+        student = student_get(body.student_id)
+        if student:
+            topics = topics + list(student.get("research_topics") or [])
+            # Explicit request preferences win, but we merge missing keys from student.
+            sp = student.get("preferences") or {}
+            if isinstance(sp, dict):
+                merged = dict(sp)
+                merged.update(prefs)
+                prefs = merged
+
+    if body.cv_text and not topics:
+        # Lightweight fallback: create coarse topics from CV tokens if caller didn't provide extracted topics.
+        cv_tokens = [w for w in body.cv_text.replace("\n", " ").split(" ") if len(w) > 4]
+        topics = cv_tokens[:20]
+
+    plan = build_discovery_query_plan(research_topics=topics, preferences=prefs)
+    return {
+        "student_id": body.student_id,
+        "query_plan": plan,
+    }
+
+
+@router.post("/google-search")
+async def discovery_google_search(body: GoogleSearchIngestionRequest):
+    """
+    Collect and score top links from Google search queries.
+    """
+    return await google_search_collect_links(
+        body.queries,
+        max_links_per_query=body.max_links_per_query,
+    )

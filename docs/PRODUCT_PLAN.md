@@ -48,6 +48,7 @@ GradConnectAI helps Master's, PhD, and Postdoc applicants:
 - [x] Profile creation from text (`POST /api/v1/students`) and PDF upload (`POST /api/v1/students/upload`).
 - [x] Topic extraction + embedding generation for student profiles.
 - [x] Discovery endpoint (`POST /api/v1/discovery/run`) using Crawl4AI markdown + LLM extraction.
+- [x] Google search ingestion MVP (`POST /api/v1/discovery/google-search`) for top-link collection + dedupe + scoring.
 - [x] Evidence-gated extraction (name + email/profile_url checks before persistence).
 - [x] Matching endpoint (`GET /api/v1/matches`) using semantic similarity + `opportunity_score`.
 - [x] Email draft generation endpoint (`POST /api/v1/email-drafts/generate`).
@@ -70,23 +71,23 @@ GradConnectAI helps Master's, PhD, and Postdoc applicants:
 
 ### Correctness and quality
 
-- [ ] Add discovery dry-run mode (return candidates/evidence without DB writes).
-- [ ] Persist richer evidence snippets/selectors consistently for each accepted field.
-- [ ] Add unit tests with saved fixtures for evidence gate logic.
-- [ ] Add retention/cleanup jobs for source documents and evidence artifacts.
+- [x] Add discovery dry-run mode (return candidates/evidence without DB writes).
+- [x] Persist richer evidence snippets/selectors consistently for each accepted field.
+- [x] Add unit tests with saved fixtures for evidence gate logic.
+- [x] Add retention/cleanup jobs for source documents and evidence artifacts.
 
 ### Product capabilities
 
-- [ ] Build CV-driven query planner to generate SEO-friendly Google/LinkedIn search keywords.
-- [ ] Implement browser-based Google search ingestion (top links collection + dedupe + scoring).
+- [x] Build CV-driven query planner to generate SEO-friendly Google/LinkedIn search keywords.
+- [ ] Implement browser-based Google search ingestion (top links collection + dedupe + scoring). (MVP HTTP ingestion exists)
 - [ ] Implement LinkedIn post/profile discovery with session management and recency weighting.
-- [ ] Add URL prioritization layer before crawl (source quality + relevance + freshness).
+- [x] Add URL prioritization layer before crawl (source quality + relevance + freshness).
 - [ ] Expand opportunity extraction into explicit structured opportunities + explanations in UI.
 
 ### Workflow sync checklist (expected vs implemented)
 
 - [x] CV upload/paste -> topic extraction -> student profile persistence.
-- [ ] CV-derived query generation for Google/LinkedIn discovery.
+- [x] CV-derived query generation for Google/LinkedIn discovery.
 - [ ] Automated Google + LinkedIn search harvesting of top links/posts.
 - [x] Crawl + normalize + Qwen extraction from seed URLs.
 - [x] Evidence-gated acceptance before professor persistence.
@@ -103,7 +104,7 @@ GradConnectAI helps Master's, PhD, and Postdoc applicants:
 
 - [ ] Add Dockerfiles and Docker Compose for frontend, backend, worker, Postgres, and model services.
 - [ ] Introduce migration workflow (Alembic) for production-safe schema changes.
-- [ ] Add CI (lint/tests/type checks) and initial E2E test coverage.
+- [x] Add CI (lint/tests/type checks) and initial E2E test coverage.
 
 ## Definition of done for production-ready MVP
 

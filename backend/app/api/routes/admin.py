@@ -1,5 +1,6 @@
 """Admin/debug endpoints for data inspection. Disabled in production."""
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.audit import get_recent_audit
@@ -8,6 +9,7 @@ from app.services.store import (
     email_drafts_for_student,
     professor_snapshots_for_professor,
     opportunities_for_professor,
+    evidence_retention_cleanup,
 )
 
 router = APIRouter()
@@ -15,6 +17,11 @@ router = APIRouter()
 
 def _admin_allowed() -> bool:
     return settings.ENVIRONMENT != "production"
+
+
+class EvidenceCleanupRequest(BaseModel):
+    older_than_days: int = 90
+    dry_run: bool = True
 
 
 @router.get("/professors")
@@ -80,3 +87,14 @@ async def admin_professor_opportunities(professor_id: str):
     if not _admin_allowed():
         raise HTTPException(status_code=403, detail="Admin endpoints disabled in production")
     return {"opportunities": opportunities_for_professor(professor_id)}
+
+
+@router.post("/cleanup/evidence")
+async def admin_cleanup_evidence(body: EvidenceCleanupRequest):
+    """Dry-run or execute retention cleanup for evidence artifacts. Admin only in production."""
+    if not _admin_allowed():
+        raise HTTPException(status_code=403, detail="Admin endpoints disabled in production")
+    return evidence_retention_cleanup(
+        older_than_days=body.older_than_days,
+        dry_run=body.dry_run,
+    )

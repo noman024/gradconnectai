@@ -6,37 +6,39 @@ import { API_BASE } from "@/lib/config";
 
 export default function EmailDraftPage({ params }: { params: Promise<{ professorId: string }> }) {
   const { professorId } = use(params);
-  const [studentId, setStudentId] = useState<string | null>(null);
+  const [studentId] = useState<string | null>(() => (
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("student_id") ?? sessionStorage.getItem("student_id")
+      : null
+  ));
   const [draft, setDraft] = useState<{ subject: string; body: string } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(() => Boolean(studentId));
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    const sid = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("student_id") ?? sessionStorage.getItem("student_id") : null;
-    setStudentId(sid);
-    if (!sid) {
-      setLoading(false);
+    if (!studentId) {
       return;
     }
-    setLoading(true);
-    setError(null);
     fetch(`${API_BASE}/api/v1/email-drafts/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ student_id: sid, professor_id: professorId }),
+      body: JSON.stringify({ student_id: studentId, professor_id: professorId }),
     })
       .then((r) => {
         if (!r.ok) throw new Error(r.statusText);
         return r.json();
       })
-      .then((d) => setDraft({ subject: d.subject || "", body: d.body || "" }))
+      .then((d) => {
+        setError(null);
+        setDraft({ subject: d.subject || "", body: d.body || "" });
+      })
       .catch((e) => {
         setError(e instanceof Error ? e.message : "Failed to generate draft");
         setDraft({ subject: "", body: "" });
       })
       .finally(() => setLoading(false));
-  }, [professorId]);
+  }, [professorId, studentId]);
 
   const copyToClipboard = useCallback(() => {
     if (!draft) return;

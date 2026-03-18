@@ -5,7 +5,7 @@ Maps student_id -> Student rows, professor_id -> Professor rows, etc.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Any, List
 
 from sqlalchemy import select, delete, and_
@@ -437,3 +437,54 @@ def opportunities_for_professor(professor_id: str) -> list[dict[str, Any]]:
             }
             for r in rows
         ]
+
+
+def evidence_retention_cleanup(*, older_than_days: int = 90, dry_run: bool = True) -> dict[str, Any]:
+    """
+    Cleanup old evidence artifacts.
+
+    Targets:
+    - professor_evidence.created_at
+    - extraction_runs.started_at
+    - source_documents.fetched_at
+    """
+    days = max(1, int(older_than_days))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    with get_session() as db:
+        evidence_q = db.query(ProfessorEvidence).filter(ProfessorEvidence.created_at < cutoff)
+        runs_q = db.query(ExtractionRun).filter(ExtractionRun.started_at < cutoff)
+        docs_q = db.query(SourceDocument).filter(SourceDocument.fetched_at < cutoff)
+
+        evidence_count = evidence_q.count()
+        runs_count = runs_q.count()
+        docs_count = docs_q.count()
+
+        if dry_run:
+            return {
+                "dry_run": True,
+                "older_than_days": days,
+                "cutoff_iso": cutoff.isoformat(),
+                "would_delete": {
+                    "professor_evidence": evidence_count,
+                    "extraction_runs": runs_count,
+                    "source_documents": docs_count,
+                },
+            }
+
+        # Delete in child-to-parent order for predictable behavior.
+        deleted_evidence = evidence_q.delete(synchronize_session=False)
+        deleted_runs = runs_q.delete(synchronize_session=False)
+        deleted_docs = docs_q.delete(synchronize_session=False)
+        db.commit()
+
+        return {
+            "dry_run": False,
+            "older_than_days": days,
+            "cutoff_iso": cutoff.isoformat(),
+            "deleted": {
+                "professor_evidence": int(deleted_evidence or 0),
+                "extraction_runs": int(deleted_runs or 0),
+                "source_documents": int(deleted_docs or 0),
+            },
+        }

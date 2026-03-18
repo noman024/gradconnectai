@@ -219,6 +219,19 @@ def extract_professors_from_markdown(
         {"role": "system", "content": "You extract structured supervisor data from academic lab and faculty pages."},
         {"role": "user", "content": user_prompt},
     ]
+
+    def _find_snippet(text: str, needle: str, radius: int = 120) -> Optional[str]:
+        if not text or not needle:
+            return None
+        idx = text.lower().find(needle.lower())
+        if idx < 0:
+            return None
+        start = max(0, idx - radius)
+        end = min(len(text), idx + len(needle) + radius)
+        snippet = text[start:end].strip()
+        if not snippet:
+            return None
+        return snippet.replace("\n", " ")
     response_format = {
         "type": "json_schema",
         "json_schema": {
@@ -305,8 +318,8 @@ def extract_professors_from_markdown(
                     "evidence_type": "name",
                     "evidence_value": name,
                     "raw_match": name,
-                    "snippet": None,
-                    "selector": None,
+                    "snippet": _find_snippet(truncated_md, name),
+                    "selector": "markdown:text",
                     "confidence": 1.0,
                 }
             )
@@ -321,8 +334,11 @@ def extract_professors_from_markdown(
                         "evidence_type": "email",
                         "evidence_value": extracted_email.strip(),
                         "raw_match": extracted_email.strip(),
-                        "snippet": None,
-                        "selector": None,
+                        "snippet": (
+                            _find_snippet(truncated_md, extracted_email.strip())
+                            or _find_snippet(truncated_md, extracted_email.strip().split("@")[0])
+                        ),
+                        "selector": "markdown:text",
                         "confidence": 1.0,
                     }
                 )
@@ -337,8 +353,8 @@ def extract_professors_from_markdown(
                         "evidence_type": "profile_url",
                         "evidence_value": extracted_profile.strip(),
                         "raw_match": extracted_profile.strip(),
-                        "snippet": None,
-                        "selector": None,
+                        "snippet": _find_snippet(truncated_md, extracted_profile.strip()),
+                        "selector": "markdown:link",
                         "confidence": 1.0,
                     }
                 )

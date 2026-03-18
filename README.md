@@ -16,7 +16,7 @@ AI-driven supervisor discovery and matching for Master's, PhD, and Postdoc stude
 
 - Student uploads CV (PDF/text) -> backend extracts topics/skills and builds profile embedding.
 - System constructs discovery intents/keywords -> searches and selects high-value source URLs/posts (Google/LinkedIn roadmap).
-- Crawl4AI fetches and normalizes pages -> Qwen extracts professor/opportunity signals with evidence gating.
+- Seed URLs are prioritized by quality/relevance/freshness -> Crawl4AI fetches and normalizes pages -> Qwen extracts professor/opportunity signals with evidence gating.
 - Matching ranks supervisors by semantic fit + opportunity score -> user gets ranked results and personalized email drafts.
 
 ## Repository Layout
@@ -193,9 +193,48 @@ curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/run \
   -H "Content-Type: application/json" \
   -d '{"seed_urls":["https://cse.uiu.ac.bd/faculty/"],"university_name":"UIU"}' | jq .
 
+# Discovery dry-run (no DB writes; returns extracted candidates + evidence)
+curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/run \
+  -H "Content-Type: application/json" \
+  -d '{"seed_urls":["https://cse.uiu.ac.bd/faculty/"],"university_name":"UIU","dry_run":true}' | jq .
+
+# Discovery query plan from student profile signal
+curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/query-plan \
+  -H "Content-Type: application/json" \
+  -d '{"research_topics":["machine learning","NLP"],"preferences":{"universities":["UIU"],"countries":["Bangladesh"]}}' | jq .
+
+# Google ingestion MVP (collect + dedupe + score links)
+curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/google-search \
+  -H "Content-Type: application/json" \
+  -d '{"queries":["machine learning professor open position"],"max_links_per_query":10}' | jq .
+
 # Matches
 curl -s "http://127.0.0.1:8009/api/v1/matches?student_id=$STUDENT_ID" | jq .
+
+# Admin evidence cleanup dry-run (development only)
+curl -s -X POST http://127.0.0.1:8009/api/v1/admin/cleanup/evidence \
+  -H "Content-Type: application/json" \
+  -d '{"older_than_days":90,"dry_run":true}' | jq .
 ```
+
+## Run Tests
+
+```bash
+cd backend
+source .venv/bin/activate
+python -m pytest -q
+```
+
+Evidence-gating fixtures and tests live under `backend/tests/fixtures/evidence_gate` and
+`backend/tests/test_evidence_gate.py`.
+
+## CI
+
+GitHub Actions workflow is available at `.github/workflows/ci.yml` and runs:
+- backend `pytest`
+- frontend `npm run lint`
+- frontend `npm run build`
+- API smoke checks (`/api/v1/health`, `/api/v1/health/ready`)
 
 ## Security Notes
 

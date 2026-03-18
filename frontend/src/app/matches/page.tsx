@@ -15,29 +15,29 @@ interface Match {
 }
 
 export default function MatchesPage() {
-  const [studentId, setStudentId] = useState<string | null>(null);
+  const [studentId] = useState<string | null>(() => (
+    typeof window !== "undefined" ? sessionStorage.getItem("student_id") : null
+  ));
   const [matches, setMatches] = useState<Match[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(() => Boolean(studentId));
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const sid = typeof window !== "undefined" ? sessionStorage.getItem("student_id") : null;
-    setStudentId(sid);
-    if (!sid) {
-      setLoading(false);
+    if (!studentId) {
       return;
     }
-    setLoading(true);
-    setError(null);
-    fetch(`${API_BASE}/api/v1/matches?student_id=${encodeURIComponent(sid)}`)
+    fetch(`${API_BASE}/api/v1/matches?student_id=${encodeURIComponent(studentId)}`)
       .then((r) => {
         if (!r.ok) throw new Error(r.statusText);
         return r.json();
       })
-      .then((d) => setMatches(d.matches || []))
+      .then((d) => {
+        setError(null);
+        setMatches(d.matches || []);
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load matches"))
       .finally(() => setLoading(false));
-  }, []);
+  }, [studentId]);
 
   if (loading) {
     return (

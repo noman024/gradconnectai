@@ -10,6 +10,7 @@ from typing import Any
 
 from app.core.logging import get_logger
 from app.services.discovery.crawl4ai_client import crawl_markdown
+from app.services.discovery.url_prioritizer import prioritize_seed_urls
 from app.services.llm_client import extract_professors_from_markdown
 
 
@@ -44,8 +45,14 @@ async def run_university_lab_pipeline(seed_urls: list[str], university_name: str
     all_raw: list[RawProfessor] = []
 
     # 1) Crawl with Crawl4AI and use LLM-based extraction only.
-    logger.info("discovery_start", seed_urls=seed_urls, university=university_name)
-    md_results = await crawl_markdown(seed_urls)
+    prioritized_urls = prioritize_seed_urls(seed_urls, university_name)
+    logger.info(
+        "discovery_start",
+        seed_urls=seed_urls,
+        prioritized_urls=prioritized_urls,
+        university=university_name,
+    )
+    md_results = await crawl_markdown(prioritized_urls)
     logger.info("discovery_crawl4ai_done", pages=len(md_results))
     for res in md_results:
         # Only use LLM-based structured extraction (Qwen). If it returns no professors,
@@ -80,6 +87,7 @@ async def run_university_lab_pipeline(seed_urls: list[str], university_name: str
         total_raw=len(all_raw),
         unique_names=len(seen_names),
         seed_urls=seed_urls,
+        prioritized_urls=prioritized_urls,
         university=university_name,
     )
     return all_raw
