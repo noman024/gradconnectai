@@ -41,6 +41,8 @@ This doc tracks the remaining work to productionize GradConnectAI end-to-end, al
 
 - [x] **Make schema re-runnable**: `opportunity_type` enum creation is now idempotent so `run_schema.py` can be executed repeatedly.
 
+- [x] **LLM context sizing is configurable**: added `LLM_MAX_INPUT_CHARS` and per-task output token caps so Qwen long-context can be used safely.
+
 ### 1.2 Strict extraction gates (no hallucinations)
 
 - [x] **Name gate**: extracted `name` must appear in the source (normalized match).
@@ -50,7 +52,9 @@ This doc tracks the remaining work to productionize GradConnectAI end-to-end, al
 - [x] **Email required when available**:
   - If the source page contains an email address, the accepted extraction must include it as evidence.
   - Only allow “profile URL only” when no email exists on the page (or page is email-obfuscated and we can’t legally/robustly recover it).
-- [x] **Evidence persistence**: store snippets/DOM selectors proving the match.
+- [~] **Evidence persistence**:
+  - Implemented: `professor_evidence` rows persist name/email/profile_url evidence values per professor.
+  - TODO: persist **DOM selectors/snippets** (currently `selector`/`snippet` are stored but not populated consistently).
 - [x] **Reject UI labels / roles**: block common non-person strings (contact, apply, positions, etc.) at the extractor level.
 - [ ] **Unit tests** for gates using saved HTML fixtures.
 
@@ -67,6 +71,7 @@ This doc tracks the remaining work to productionize GradConnectAI end-to-end, al
 
 **Notes**
 - Crawl4AI requires Playwright Chromium installed (`playwright install chromium`). Without it, discovery should return `ingested: 0` and log a Crawl4AI startup error (no 500s).
+- Current discovery is **Qwen-only** (heuristic fallbacks removed); correctness is enforced via hard evidence gates.
 
 ---
 
@@ -231,4 +236,22 @@ Resolved:
 Remaining:
 
 None (decisions captured above). If new constraints appear (e.g. Google blocks), we revisit engine ordering and quotas.
+
+---
+
+## Current status summary (synced with repo)
+
+- **Implemented**
+  - Evidence tables + ORM models + store helpers (`source_documents`, `extraction_runs`, `professor_evidence`)
+  - Qwen extraction includes `profile_url` and enforces evidence gates (name-in-text; email required when available; else profile_url)
+  - Crawl4AI/Playwright missing-binary failure is handled gracefully (no 500s)
+  - Context sizing is configurable via env (`LLM_MAX_INPUT_CHARS`, `LLM_MAX_OUTPUT_TOKENS_*`)
+
+- **Not implemented yet**
+  - Dry-run discovery mode
+  - Unit tests + fixtures for evidence gates
+  - Retention jobs for evidence/source docs
+  - SERP (Google/Bing) + LinkedIn search automation
+  - Google OAuth + user model + authorization
+  - Containerization (Dockerfiles + Compose) and migrations (Alembic)
 
