@@ -18,6 +18,9 @@ from app.db.models import (
     ProfessorSnapshot,
     Opportunity,
     OpportunityType,
+    SourceDocument,
+    ExtractionRun,
+    ProfessorEvidence,
 )
 from app.db.session import get_session
 
@@ -42,6 +45,86 @@ def generate_id() -> str:
 
 def _uuid(id_str: str):
     return uuid.UUID(id_str)
+
+
+def source_document_create(
+    *,
+    url: str,
+    status_code: int | None = None,
+    robots_allowed: bool | None = None,
+    content_type: str | None = None,
+    content_hash: str | None = None,
+    content_text: str | None = None,
+) -> str:
+    """Create a source_documents row and return its id."""
+    with get_session() as db:
+        doc = SourceDocument(
+            url=url,
+            status_code=status_code,
+            robots_allowed=robots_allowed,
+            content_type=content_type,
+            content_hash=content_hash,
+            content_text=content_text,
+        )
+        db.add(doc)
+        db.commit()
+        return str(doc.id)
+
+
+def extraction_run_create(
+    *,
+    source_document_id: str | None,
+    extractor: str,
+    llm_model: str | None = None,
+    prompt_version: str | None = None,
+    success: bool = False,
+    error: str | None = None,
+) -> str:
+    """Create an extraction_runs row and return its id."""
+    with get_session() as db:
+        run = ExtractionRun(
+            source_document_id=_uuid(source_document_id) if source_document_id else None,
+            extractor=extractor,
+            llm_model=llm_model,
+            prompt_version=prompt_version,
+            success=success,
+            error=error,
+        )
+        db.add(run)
+        db.commit()
+        return str(run.id)
+
+
+def professor_evidence_create(
+    *,
+    professor_id: str,
+    url: str,
+    evidence_type: str,
+    evidence_value: str | None = None,
+    raw_match: str | None = None,
+    snippet: str | None = None,
+    selector: str | None = None,
+    confidence: float = 1.0,
+    source_document_id: str | None = None,
+    extraction_run_id: str | None = None,
+) -> str:
+    """Create a professor_evidence row and return its id."""
+    with get_session() as db:
+        ev = ProfessorEvidence(
+            professor_id=_uuid(professor_id),
+            source_document_id=_uuid(source_document_id) if source_document_id else None,
+            extraction_run_id=_uuid(extraction_run_id) if extraction_run_id else None,
+            url=url,
+            evidence_type=evidence_type,
+            evidence_value=evidence_value,
+            raw_match=raw_match,
+            snippet=snippet,
+            selector=selector,
+            confidence=float(confidence),
+        )
+        db.add(ev)
+        db.commit()
+        return str(ev.id)
 
 
 def student_set(student_id: str, data: dict[str, Any]) -> None:
@@ -77,8 +160,15 @@ def student_get(student_id: str) -> dict[str, Any] | None:
         }
 
 
-def professor_set(professor_id: str, data: dict[str, Any]) -> None:
-    """Upsert professor and record a simple snapshot of the current state."""
+def professor_set(
+    professor_id: str,
+    data: dict[str, Any],
+    *,
+    evidence: list[dict[str, Any]] | None = None,
+    source_document_id: str | None = None,
+    extraction_run_id: str | None = None,
+) -> None:
+    """Upsert professor and record a simple snapshot of the current state (and optional evidence)."""
     with get_session() as db:
         obj = Professor(
             id=_uuid(professor_id),
@@ -114,6 +204,23 @@ def professor_set(professor_id: str, data: dict[str, Any]) -> None:
             valid_to=None,
         )
         db.add(snap)
+        # Persist evidence (if provided) for auditability.
+        if evidence:
+            for e in evidence:
+                db.add(
+                    ProfessorEvidence(
+                        professor_id=obj.id,
+                        source_document_id=_uuid(source_document_id) if source_document_id else None,
+                        extraction_run_id=_uuid(extraction_run_id) if extraction_run_id else None,
+                        url=str(e.get("url") or (data.get("lab_url") or "")),
+                        evidence_type=str(e.get("evidence_type") or "unknown"),
+                        evidence_value=(str(e["evidence_value"]) if e.get("evidence_value") is not None else None),
+                        raw_match=(str(e["raw_match"]) if e.get("raw_match") is not None else None),
+                        snippet=(str(e["snippet"]) if e.get("snippet") is not None else None),
+                        selector=(str(e["selector"]) if e.get("selector") is not None else None),
+                        confidence=float(e.get("confidence") or 1.0),
+                    )
+                )
         db.commit()
 
 

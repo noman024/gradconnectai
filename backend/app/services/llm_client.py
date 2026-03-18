@@ -28,6 +28,14 @@ def _llm_model() -> str:
     return settings.LLM_MODEL or "Qwen/Qwen3.5-0.8B"
 
 
+def _truncate(text: str, limit: int) -> str:
+    if not text:
+        return ""
+    if limit <= 0:
+        return ""
+    return text[:limit]
+
+
 class TopicsResponse(BaseModel):
     topics: List[str]
 
@@ -35,6 +43,7 @@ class TopicsResponse(BaseModel):
 class ProfessorItem(BaseModel):
     name: str
     email: Optional[str] = None
+    profile_url: Optional[str] = None
     lab_focus: Optional[str] = None
     research_topics: List[str] = []
     opportunity_score: float = 0.5
@@ -115,6 +124,7 @@ def extract_topics_from_cv(cv_text: str, preference_fields: List[str]) -> Option
     if not cv_text:
         return None
     logger = get_logger("llm_client")
+    max_in = int(getattr(settings, "LLM_MAX_INPUT_CHARS", 32000) or 32000)
     user_prompt = (
         "You are an academic assistant. Extract ONLY research domains, methods, and application areas from the CV.\n\n"
         "STRICT RULES:\n"
@@ -125,7 +135,7 @@ def extract_topics_from_cv(cv_text: str, preference_fields: List[str]) -> Option
         "- Each topic must be a research domain or method, not a person or role.\n"
         "- Return at most 12 topics.\n"
         "- Output MUST be pure JSON only: {\"topics\": [\"topic1\", \"topic2\", ...]}.\n\n"
-        f"CV text:\n{cv_text[:32000]}\n\n"
+        f"CV text:\n{_truncate(cv_text, max_in)}\n\n"
         f"Stated fields (use if relevant): {', '.join(preference_fields) or 'none'}"
     )
     messages = [
@@ -140,7 +150,8 @@ def extract_topics_from_cv(cv_text: str, preference_fields: List[str]) -> Option
             "strict": True,
         },
     }
-    content = _chat_completion(messages, response_format=response_format)
+    max_out = int(getattr(settings, "LLM_MAX_OUTPUT_TOKENS_TOPICS", 256) or 256)
+    content = _chat_completion(messages, max_tokens=max_out, response_format=response_format)
     if not content:
         return None
     try:
@@ -170,32 +181,39 @@ def extract_professors_from_markdown(
     if not markdown:
         return None
     logger = get_logger("llm_client")
+    max_in = int(getattr(settings, "LLM_MAX_INPUT_CHARS", 32000) or 32000)
     # Use a truncated, lowercased copy of the markdown to sanity-check that any
     # returned professor "name" actually occurs in the source text. This helps
     # avoid hallucinated people on generic opportunity/job pages.
-    text_for_matching = markdown[:32000].lower()
+    truncated_md = _truncate(markdown, max_in)
+    text_for_matching = truncated_md.lower()
     user_prompt = (
         "You are helping build a directory of academic supervisors.\n"
         "From the following page content, extract information about people who could be potential supervisors.\n\n"
         "Requirements:\n"
         "- Only include people (faculty, researchers, lab heads). Skip students and staff without research roles.\n"
+        "- IMPORTANT: Include a person even if their email is not shown, as long as a profile link exists on the page.\n"
+        "  The page content is in Markdown; names are often written as Markdown links like: [Dr. Jane Doe](https://.../profile).\n"
         "- For each person, capture:\n"
         "  - name: their full name.\n"
         "  - email: their institutional email if present, otherwise null.\n"
-        "  - lab_focus: one short sentence (~20-30 words) summarizing their research group or main research focus.\n"
-        "  - research_topics: an array of 3-8 concise research topics (domains, methods, or application areas).\n"
+        "  - profile_url: a URL pointing to their profile page if present on the page (e.g. faculty profile, lab profile, LinkedIn profile), otherwise null.\n"
+        "  - lab_focus: one short sentence (<=20 words) summarizing their research group or main research focus.\n"
+        "  - research_topics: an array of 3-5 concise research topics (domains, methods, or application areas).\n"
         "  - opportunity_score: a number between 0 and 1 estimating how likely they are to be recruiting students now.\n"
         "    Use signals like 'open positions', 'hiring', 'scholarship', 'students wanted', or recent grant/project announcements.\n"
         "- If there are no clear hiring signals, set opportunity_score around 0.4–0.6.\n"
+        "- If the page is a faculty list, extract as many real faculty as possible (prefer those explicitly labeled Professor/Associate Professor/Assistant Professor).\n"
+        "- Return at most 25 professors.\n"
         "- Output MUST be pure JSON with this exact shape and nothing else:\n"
         '{\"professors\": [\n'
-        '  {\"name\": \"...\", \"email\": \"...\" or null, \"lab_focus\": \"...\" or null,\n'
+        '  {\"name\": \"...\", \"email\": \"...\" or null, \"profile_url\": \"...\" or null, \"lab_focus\": \"...\" or null,\n'
         '   \"research_topics\": [\"...\"], \"opportunity_score\": 0.0-1.0 },\n'
         "  ...\n"
         "]}.\n\n"
         f"University: {university}\n"
         f"Page URL: {page_url}\n\n"
-        f"Page content (Markdown):\n{markdown[:32000]}\n"
+        f"Page content (Markdown):\n{truncated_md}\n"
     )
     messages = [
         {"role": "system", "content": "You extract structured supervisor data from academic lab and faculty pages."},
@@ -209,7 +227,9 @@ def extract_professors_from_markdown(
             "strict": True,
         },
     }
-    content = _chat_completion(messages, max_tokens=768, temperature=0.3, response_format=response_format)
+    # Allow larger outputs for faculty lists; the JSON schema is strict so truncation is the main risk.
+    max_out = int(getattr(settings, "LLM_MAX_OUTPUT_TOKENS_PROFESSORS", 2048) or 2048)
+    content = _chat_completion(messages, max_tokens=max_out, temperature=0.2, response_format=response_format)
     if not content:
         return None
     try:
@@ -225,43 +245,44 @@ def extract_professors_from_markdown(
         except Exception:
             pass
 
-        forbidden_name_tokens = {
-            "university",
-            "department",
-            "faculty",
-            "school",
-            "institute",
-            "center",
-            "centre",
-            "college",
-        }
-        forbidden_role_tokens = {
-            "phd",
-            "student",
-            "position",
-            "positions",
-            "scholarship",
-            "fellowship",
-            "postdoc",
-            "vacancy",
-            "opportunity",
-            "opportunities",
-        }
-        forbidden_ui_tokens = {
-            "application",
-            "applications",
-            "application form",
-            "apply",
-            "apply now",
-            "contact",
-            "contact us",
-            "home",
-            "news",
-            "events",
-            "people",
-            "team",
-            "staff",
-        }
+        def _extract_emails_with_obfuscation(text: str) -> set[str]:
+            """
+            Extract emails from text including common obfuscations.
+            Returns lowercased normalized emails.
+            """
+            import re as _re
+
+            out: set[str] = set()
+            # 1) Normal emails
+            email_re = _re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
+            for m in email_re.findall(text):
+                out.add(m.strip().lower())
+
+            # 2) Common obfuscations: name [at] domain [dot] edu / name(at)domain(dot)edu / " at " " dot "
+            # Normalize spacing and brackets.
+            t = text
+            t = t.replace("\u00a0", " ")
+            t = _re.sub(r"\s+", " ", t)
+            # Replace HTML entities for @ when present as plain text.
+            t = t.replace("&#64;", "@").replace("&commat;", "@").replace("&period;", ".")
+            # Replace bracketed at/dot patterns
+            replacements = [
+                (r"\s*\[\s*at\s*\]\s*", "@"),
+                (r"\s*\(\s*at\s*\)\s*", "@"),
+                (r"\s+at\s+", "@"),
+                (r"\s*\[\s*dot\s*\]\s*", "."),
+                (r"\s*\(\s*dot\s*\)\s*", "."),
+                (r"\s+dot\s+", "."),
+            ]
+            norm = t
+            for pat, repl in replacements:
+                norm = _re.sub(pat, repl, norm, flags=_re.IGNORECASE)
+            # Remove obvious anti-spam tokens
+            norm = _re.sub(r"\(remove\)|REMOVE_THIS|REMOVE\s+THIS", "", norm, flags=_re.IGNORECASE)
+            # Re-extract after normalization
+            for m in email_re.findall(norm):
+                out.add(m.strip().lower())
+            return out
         for p in parsed.professors:
             name = p.name.strip()
             if not name:
@@ -270,26 +291,58 @@ def extract_professors_from_markdown(
             # 1) Name must actually appear in the page text (avoid pure hallucinations).
             if lower_name not in text_for_matching:
                 continue
-            parts = [part for part in name.split() if part.strip()]
-            # 2) Require at least two tokens.
-            if len(parts) < 2:
-                continue
-            # 3) Drop obvious organization / non-person terms.
-            if any(tok in lower_name for tok in forbidden_name_tokens):
-                continue
-            # 4) Drop titles/roles / UI labels that clearly indicate a position, not a person.
-            if any(tok in lower_name for tok in forbidden_role_tokens | forbidden_ui_tokens):
-                continue
-            # 5) Require that at least two tokens look like proper-name style (e.g. "Alice", "Smith").
-            def _looks_like_name_token(t: str) -> bool:
-                return len(t) > 1 and t[0].isupper() and t[1:].islower()
 
-            name_like_tokens = [t for t in parts if _looks_like_name_token(t)]
-            if len(name_like_tokens) < 2:
-                continue
-            # 6) Drop tokens that are all-caps short acronyms (e.g. "AI", "ML", "NLP").
-            if any(t.isupper() and len(t) <= 4 for t in parts):
-                continue
+            # Evidence gating:
+            # - If an email exists anywhere on the page (including common obfuscations), we require capturing it.
+            # - Otherwise we accept a profile_url if present and found on the page.
+            page_emails = _extract_emails_with_obfuscation(truncated_md)
+            extracted_email = (p.email or "").strip() if p.email else None
+            extracted_profile = (p.profile_url or "").strip() if p.profile_url else None
+            evidence: list[dict[str, Any]] = []
+            evidence.append(
+                {
+                    "url": page_url,
+                    "evidence_type": "name",
+                    "evidence_value": name,
+                    "raw_match": name,
+                    "snippet": None,
+                    "selector": None,
+                    "confidence": 1.0,
+                }
+            )
+            if page_emails:
+                if not extracted_email:
+                    continue
+                if extracted_email.strip().lower() not in page_emails:
+                    continue
+                evidence.append(
+                    {
+                        "url": page_url,
+                        "evidence_type": "email",
+                        "evidence_value": extracted_email.strip(),
+                        "raw_match": extracted_email.strip(),
+                        "snippet": None,
+                        "selector": None,
+                        "confidence": 1.0,
+                    }
+                )
+            else:
+                if not extracted_profile:
+                    continue
+                if extracted_profile.strip().lower() not in text_for_matching:
+                    continue
+                evidence.append(
+                    {
+                        "url": page_url,
+                        "evidence_type": "profile_url",
+                        "evidence_value": extracted_profile.strip(),
+                        "raw_match": extracted_profile.strip(),
+                        "snippet": None,
+                        "selector": None,
+                        "confidence": 1.0,
+                    }
+                )
+
             topics = [t.strip() for t in (p.research_topics or []) if isinstance(t, str) and t.strip()]
             opp = p.opportunity_score
             if not (0.0 <= opp <= 1.0):
@@ -298,9 +351,11 @@ def extract_professors_from_markdown(
                 {
                     "name": name,
                     "email": p.email or None,
+                    "profile_url": p.profile_url or None,
                     "lab_focus": (p.lab_focus or None),
                     "research_topics": topics,
                     "opportunity_score": opp,
+                    "_evidence": evidence,
                 }
             )
         logger.info("llm_profs_extracted", count=len(cleaned), sample=[c["name"] for c in cleaned[:3]])

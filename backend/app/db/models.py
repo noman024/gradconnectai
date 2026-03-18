@@ -151,3 +151,61 @@ class AuditLog(Base):
     resource_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     details: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+# =========================================================
+# Evidence-gated discovery models (productionization)
+# =========================================================
+
+
+class SourceDocument(Base):
+    __tablename__ = "source_documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    content_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status_code: Mapped[Optional[int]] = mapped_column(nullable=True)
+    robots_allowed: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    content_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    content_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ExtractionRun(Base):
+    __tablename__ = "extraction_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source_document_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("source_documents.id", ondelete="CASCADE"), nullable=True
+    )
+    extractor: Mapped[str] = mapped_column(Text, nullable=False)
+    llm_model: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    prompt_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    success: Mapped[bool] = mapped_column(Boolean, default=False)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class ProfessorEvidence(Base):
+    __tablename__ = "professor_evidence"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    professor_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("professors.id", ondelete="CASCADE"), nullable=False
+    )
+    source_document_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("source_documents.id", ondelete="SET NULL"), nullable=True
+    )
+    extraction_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("extraction_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_type: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_match: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    snippet: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    selector: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

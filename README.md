@@ -71,6 +71,10 @@ uvicorn app.main:app --reload --port 8009
 | **LLM_MODEL**         | Model name: `frob/qwen3.5-instruct:9b` for Ollama (recommended), or `Qwen/Qwen3.5-0.8B` for vLLM.                                                                                                                                                                                                                                               |
 | **EMBEDDING_MODEL**   | Name of the embedding model used locally for sentence-transformers (used for pgvector alignment).                                                                                                                                                                                                                                               |
 | **ENVIRONMENT**       | Use `development` locally and `production` when deployed.                                                                                                                                                                                                                                                                                       |
+| **LLM_MAX_INPUT_CHARS** | Max characters of page/CV text sent into the LLM (default `200000`). Increase to leverage long-context Qwen (262k). |
+| **LLM_MAX_OUTPUT_TOKENS_PROFESSORS** | Max tokens for professor extraction output (default `2048`). |
+| **LLM_MAX_OUTPUT_TOKENS_TOPICS** | Max tokens for CV topic extraction output (default `256`). |
+| **LLM_MAX_OUTPUT_TOKENS_EMAIL** | Max tokens for email draft output (default `768`). |
 
 
 **Note:** The app now uses **PostgreSQL** (via `SYNC_DATABASE_URL`) for students, professors, matches, email drafts, opportunities, professor snapshots, and audit logs. Running the schema is required before using the app.
@@ -284,6 +288,24 @@ curl -i -X POST http://127.0.0.1:8009/api/v1/discovery/run \
 
 curl -i http://127.0.0.1:8009/api/v1/professors
 ```
+
+#### Playwright / Crawl4AI prerequisite (Linux servers)
+
+Discovery uses **Crawl4AI** which relies on **Playwright Chromium**. If browsers are missing you may see an error like:
+`Executable doesn't exist ... Please run: playwright install`.
+
+On servers where `/tmp` is small, set these so downloads and temporary files go to a larger volume (example under `/home/ocr`):
+
+```bash
+mkdir -p /home/ocr/playwright-tmp /home/ocr/playwright-browsers
+export TMPDIR=/home/ocr/playwright-tmp
+export PLAYWRIGHT_BROWSERS_PATH=/home/ocr/playwright-browsers
+
+# install browser binaries
+playwright install chromium
+```
+
+Then restart the backend so it can launch Chromium.
 
 Expected: `{"ingested": N}` and `{ "professors": [...] }`. Professors are deduplicated by name+university. For each ingested professor, a snapshot and a basic `Opportunity` row are also stored.
 

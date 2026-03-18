@@ -32,36 +32,41 @@ This doc tracks the remaining work to productionize GradConnectAI end-to-end, al
 
 ### 1.1 Evidence model + DB changes
 
-- [ ] **Add evidence tables** (new schema):
+- [x] **Add evidence tables** (new schema):
   - `source_documents`: url, fetched_at, content_hash, raw_text/markdown pointer, http status, robots allowed
   - `extraction_runs`: model/version, prompt_version, started_at, finished_at, success, error
   - `professor_evidence`: professor_id, url, evidence_type (email/name/profile_url), selector/snippet, confidence
-- [ ] **Store model versions** for each extraction (LLM + embeddings).
+- [x] **Store model versions** for each extraction (LLM + embeddings).
 - [ ] **Retention rules** for source documents and evidence (configurable).
+
+- [x] **Make schema re-runnable**: `opportunity_type` enum creation is now idempotent so `run_schema.py` can be executed repeatedly.
 
 ### 1.2 Strict extraction gates (no hallucinations)
 
-- [ ] **Name gate**: extracted `name` must appear in the source (normalized match).
-- [ ] **Email OR profile URL gate**:
+- [x] **Name gate**: extracted `name` must appear in the source (normalized match).
+- [x] **Email OR profile URL gate**:
   - If email present: must appear in the source (regex match + exact span capture).
   - If profile URL present: must be a real link in the DOM (anchor href captured).
-- [ ] **Email required when available**:
+- [x] **Email required when available**:
   - If the source page contains an email address, the accepted extraction must include it as evidence.
   - Only allow “profile URL only” when no email exists on the page (or page is email-obfuscated and we can’t legally/robustly recover it).
-- [ ] **Evidence persistence**: store snippets/DOM selectors proving the match.
-- [ ] **Reject UI labels / roles**: block common non-person strings (contact, apply, positions, etc.) at the extractor level.
+- [x] **Evidence persistence**: store snippets/DOM selectors proving the match.
+- [x] **Reject UI labels / roles**: block common non-person strings (contact, apply, positions, etc.) at the extractor level.
 - [ ] **Unit tests** for gates using saved HTML fixtures.
 
 ### 1.3 Discovery pipeline refactor (LLM + evidence)
 
-- [ ] **Split discovery into steps**:
+- [x] **Split discovery into steps**:
   - Fetch → normalize → extract candidates → validate with evidence → upsert
 - [ ] **Add “dry run” mode**: return extracted candidates + evidence without DB writes.
-- [ ] **Add structured logs** per URL: fetch status, extracted candidates count, accepted count, rejection reasons.
+- [x] **Add structured logs** per URL: fetch status, extracted candidates count, accepted count, rejection reasons.
 
 **Exit criteria**
 - Running discovery on job boards does **not** pollute `professors`.
 - Every inserted professor has stored evidence for name + email/profile URL.
+
+**Notes**
+- Crawl4AI requires Playwright Chromium installed (`playwright install chromium`). Without it, discovery should return `ingested: 0` and log a Crawl4AI startup error (no 500s).
 
 ---
 

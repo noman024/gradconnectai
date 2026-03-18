@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from app.core.logging import get_logger
 from app.services.llm_client import _chat_completion
+from app.core.config import settings
 
 # Default tone: professional, concise
 DEFAULT_TONE = "professional"
@@ -93,7 +94,8 @@ def _call_llm(prompt: str) -> str:
         },
     ]
     # Low temperature to reduce verbose / meta reasoning.
-    text = _chat_completion(messages, max_tokens=512, temperature=0.1)
+    max_out = int(getattr(settings, "LLM_MAX_OUTPUT_TOKENS_EMAIL", 768) or 768)
+    text = _chat_completion(messages, max_tokens=max_out, temperature=0.1)
     if not text:
         logger.warning("email_llm_error", error="llm_empty_response")
         return ""

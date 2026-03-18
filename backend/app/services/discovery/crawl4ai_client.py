@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from typing import Iterable
 import os
 
+from app.core.logging import get_logger
+
 try:
     from crawl4ai import AsyncWebCrawler, BrowserConfig  # type: ignore
 except ImportError:  # pragma: no cover - optional dependency
@@ -40,21 +42,37 @@ async def crawl_markdown(urls: Iterable[str]) -> list[Crawl4AIResult]:
     headless = not (headless_env in ("0", "false", "no"))
     browser_config = BrowserConfig(headless=headless, verbose=True)
 
-    async with AsyncWebCrawler(config=browser_config) as crawler:
-        for url in urls:
-            try:
-                out = await crawler.arun(url=url)
-            except Exception:
-                continue
-            md = getattr(out, "markdown", None)
-            text = ""
-            if isinstance(md, str):
-                text = md
-            elif hasattr(md, "raw_markdown"):
-                text = md.raw_markdown or ""
-            if not text:
-                continue
-            results.append(Crawl4AIResult(url=url, markdown=text))
+    logger = get_logger("crawl4ai_client")
+    try:
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            for url in urls:
+                try:
+                    out = await crawler.arun(url=url)
+                except Exception as exc:
+                    logger.warning("crawl4ai_page_failed", url=url, error=str(exc))
+                    continue
+                md = getattr(out, "markdown", None)
+                text = ""
+                if isinstance(md, str):
+                    text = md
+                elif hasattr(md, "raw_markdown"):
+                    text = md.raw_markdown or ""
+                if not text:
+                    continue
+                try:
+                    logger.info(
+                        "crawl4ai_page_ok",
+                        url=url,
+                        markdown_len=len(text),
+                        markdown_preview=text[:300].replace("\n", "\\n"),
+                    )
+                except Exception:
+                    pass
+                results.append(Crawl4AIResult(url=url, markdown=text))
+    except Exception as exc:
+        # Common failure mode: Playwright browsers not installed.
+        logger.error("crawl4ai_start_failed", error=str(exc))
+        return []
     return results
 
 

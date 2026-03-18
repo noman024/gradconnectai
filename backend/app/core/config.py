@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     LLM_API_KEY: str = "EMPTY"
     LLM_MODEL: str = "Qwen/Qwen3.5-0.8B"
 
+    # LLM context & output sizing (tunable via env)
+    # Qwen context can be very large (e.g. 262144), but we keep this configurable to control latency/cost.
+    LLM_MAX_INPUT_CHARS: int = 200000
+    LLM_MAX_OUTPUT_TOKENS_TOPICS: int = 256
+    LLM_MAX_OUTPUT_TOKENS_PROFESSORS: int = 2048
+    LLM_MAX_OUTPUT_TOKENS_EMAIL: int = 768
+
     CRAWL4AI_HEADLESS: bool = True
 
     CRAWLER_REQUESTS_PER_MINUTE: int = 30
