@@ -56,6 +56,7 @@ class LinkedInDiscoveryRequest(BaseModel):
     session_id: str | None = None
     li_at_cookie: str | None = None
     max_links_per_query: int | None = None
+    use_authenticated_browser: bool = True
 
 
 class DiscoveryHarvestRequest(BaseModel):
@@ -245,6 +246,7 @@ async def discovery_linkedin(body: LinkedInDiscoveryRequest):
         session_id=body.session_id,
         li_at_cookie=body.li_at_cookie,
         max_links_per_query=body.max_links_per_query,
+        use_authenticated_browser=body.use_authenticated_browser,
     )
 
 

@@ -128,6 +128,14 @@ npm run dev
 | `LINKEDIN_SESSION_TTL_MINUTES` | LinkedIn discovery session TTL |
 | `LINKEDIN_MAX_RESULTS_PER_QUERY` | Max LinkedIn links kept per query |
 | `LINKEDIN_LI_AT` | Optional LinkedIn `li_at` cookie for authenticated LinkedIn discovery |
+| `LINKEDIN_BROWSER_HEADLESS` | LinkedIn authenticated browser discovery headless mode |
+| `LINKEDIN_BROWSER_TIMEOUT_MS` | Browser navigation timeout for LinkedIn discovery |
+| `LINKEDIN_BROWSER_SCROLL_STEPS` | Scroll passes to load more LinkedIn results |
+| `LINKEDIN_BROWSER_SCROLL_WAIT_MS` | Wait between scroll passes for dynamic content |
+| `SEARCH_PROVIDER_ORDER` | Search provider order (default no-proxy safe: `bing,bing_rss,duckduckgo`) |
+| `SEARCH_PROXY_URLS` | Optional comma-separated proxies for request rotation |
+| `SEARCH_ENABLE_GOOGLE` | Enable/disable Google provider usage (`1`/`0`, default `0`) |
+| `SEARCH_GOOGLE_COOLDOWN_SECONDS` | Cooldown after Google 429 before next Google attempt |
 
 ## LLM Backend Options (Ollama and vLLM)
 
@@ -224,6 +232,15 @@ curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/google-search-browser \
 curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/linkedin-discovery \
   -H "Content-Type: application/json" \
   -d '{"queries":["machine learning professor hiring"],"max_links_per_query":8}' | jq .
+
+# LinkedIn discovery with authenticated cookie (better post coverage)
+curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/linkedin-discovery \
+  -H "Content-Type: application/json" \
+  -d '{"queries":["phd in ai"],"li_at_cookie":"<YOUR_LINKEDIN_LI_AT_COOKIE>","max_links_per_query":8}' | jq .
+
+# No-proxy mode (recommended): avoid Google 429 and rely on Bing/Bing RSS
+# SEARCH_PROVIDER_ORDER=bing,bing_rss,duckduckgo
+# SEARCH_ENABLE_GOOGLE=0
 
 # Integrated automated harvester (query-plan + Google + LinkedIn -> ranked seed URLs)
 curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/harvest \

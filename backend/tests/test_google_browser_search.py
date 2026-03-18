@@ -20,3 +20,16 @@ def test_google_browser_search_graceful_when_playwright_missing(monkeypatch):
     assert out["engine"] == "playwright"
     assert out["available"] is False
     assert out["total_deduped"] == 0
+
+
+def test_google_browser_search_skips_when_google_provider_disabled(monkeypatch):
+    monkeypatch.setattr(gbs.settings, "SEARCH_ENABLE_GOOGLE", False)
+    out = asyncio.run(
+        gbs.google_search_collect_links_browser(
+            ["machine learning professor"],
+            max_links_per_query=5,
+        )
+    )
+    assert out["engine"] == "playwright"
+    assert out["available"] is False
+    assert out["error"] == "google_provider_disabled"

@@ -4,16 +4,61 @@ Google search ingestion (MVP): query -> links collection -> dedupe -> scoring.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote_plus, unquote, urlparse
 from typing import Any
 
 import httpx
+
+from app.core.config import settings
 
 
 GOOGLE_UA = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
 )
+SEARCH_REQUEST_TIMEOUT_S = 8.0
+_PROXY_ROTATE_INDEX = 0
+_GOOGLE_COOLDOWN_UNTIL: datetime | None = None
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _split_csv(value: str | None) -> list[str]:
+    return [x.strip() for x in (value or "").split(",") if x.strip()]
+
+
+def _provider_order() -> list[str]:
+    configured = _split_csv(getattr(settings, "SEARCH_PROVIDER_ORDER", "bing,bing_rss,google,duckduckgo"))
+    allowed = {"google", "bing", "bing_rss", "duckduckgo"}
+    order = [p for p in configured if p in allowed]
+    return order or ["bing", "bing_rss", "google", "duckduckgo"]
+
+
+def _proxy_pool() -> list[str]:
+    return _split_csv(getattr(settings, "SEARCH_PROXY_URLS", ""))
+
+
+def _next_proxy() -> str | None:
+    global _PROXY_ROTATE_INDEX
+    pool = _proxy_pool()
+    if not pool:
+        return None
+    chosen = pool[_PROXY_ROTATE_INDEX % len(pool)]
+    _PROXY_ROTATE_INDEX += 1
+    return chosen
+
+
+def _google_on_cooldown() -> bool:
+    return _GOOGLE_COOLDOWN_UNTIL is not None and _GOOGLE_COOLDOWN_UNTIL > _utcnow()
+
+
+def _mark_google_cooldown() -> None:
+    global _GOOGLE_COOLDOWN_UNTIL
+    seconds = max(10, int(getattr(settings, "SEARCH_GOOGLE_COOLDOWN_SECONDS", 300) or 300))
+    _GOOGLE_COOLDOWN_UNTIL = _utcnow() + timedelta(seconds=seconds)
 
 
 def build_google_search_url(query: str, num: int = 10) -> str:
@@ -148,6 +193,74 @@ def extract_links_from_bing_rss(xml_text: str) -> list[str]:
     return uniq
 
 
+async def collect_links_for_query(
+    query: str,
+    *,
+    max_links: int,
+    headers: dict[str, str] | None = None,
+    providers: list[str] | None = None,
+) -> tuple[list[str], str]:
+    """
+    Collect links for one query using configured provider order and optional proxy rotation.
+    Returns (links, provider_used).
+    """
+    n = max(1, min(int(max_links), 20))
+    provider_list = providers or _provider_order()
+    hdrs = headers or {
+        "User-Agent": GOOGLE_UA,
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    for provider in provider_list:
+        if provider == "google":
+            if not bool(getattr(settings, "SEARCH_ENABLE_GOOGLE", True)):
+                continue
+            if _google_on_cooldown():
+                continue
+        proxy = _next_proxy()
+        try:
+            async with httpx.AsyncClient(
+                timeout=SEARCH_REQUEST_TIMEOUT_S,
+                headers=hdrs,
+                follow_redirects=True,
+                proxy=proxy,
+            ) as client:
+                if provider == "google":
+                    resp = await client.get(build_google_search_url(query, num=n))
+                    links: list[str] = []
+                    if resp.status_code == 200:
+                        links = extract_google_result_links_from_html(resp.text)[:n]
+                    if resp.status_code == 429 or "google.com/sorry" in str(resp.url):
+                        _mark_google_cooldown()
+                    if links:
+                        return links, "google"
+                    continue
+                if provider == "bing":
+                    resp = await client.get(build_bing_search_url(query, num=n))
+                    if resp.status_code == 200:
+                        links = extract_http_links_from_html(resp.text)[:n]
+                        if links:
+                            return links, "bing"
+                    continue
+                if provider == "bing_rss":
+                    resp = await client.get(build_bing_rss_search_url(query))
+                    if resp.status_code == 200:
+                        links = extract_links_from_bing_rss(resp.text)[:n]
+                        if links:
+                            return links, "bing_rss"
+                    continue
+                if provider == "duckduckgo":
+                    resp = await client.get(build_duckduckgo_search_url(query))
+                    if resp.status_code == 200:
+                        links = extract_http_links_from_html(resp.text)[:n]
+                        if links:
+                            return links, "duckduckgo"
+                    continue
+        except Exception:
+            continue
+    return [], "none"
+
+
 def _score_url_for_query(url: str, query: str, rank: int) -> float:
     u = (url or "").lower()
     q = (query or "").lower()
@@ -180,61 +293,31 @@ async def google_search_collect_links(
         "Accept-Language": "en-US,en;q=0.9",
     }
 
-    async with httpx.AsyncClient(timeout=20.0, headers=headers, follow_redirects=True) as client:
-        for q in queries or []:
-            query = (q or "").strip()
-            if not query:
-                continue
-            url = build_google_search_url(query, num=n)
-            try:
-                resp = await client.get(url)
-            except Exception:
-                resp = None
-            links: list[str] = []
-            provider = "google"
-            if resp is not None and resp.status_code == 200:
-                links = extract_google_result_links_from_html(resp.text)[:n]
-            # Fallback provider if Google returns no parseable links.
-            if not links:
-                try:
-                    ddg = await client.get(build_duckduckgo_search_url(query))
-                    if ddg.status_code == 200:
-                        links = extract_http_links_from_html(ddg.text)[:n]
-                        provider = "duckduckgo"
-                except Exception:
-                    links = []
-            if not links:
-                try:
-                    bing = await client.get(build_bing_search_url(query, num=n))
-                    if bing.status_code == 200:
-                        links = extract_http_links_from_html(bing.text)[:n]
-                        provider = "bing"
-                except Exception:
-                    links = []
-            if not links:
-                try:
-                    bing_rss = await client.get(build_bing_rss_search_url(query))
-                    if bing_rss.status_code == 200:
-                        links = extract_links_from_bing_rss(bing_rss.text)[:n]
-                        provider = "bing_rss"
-                except Exception:
-                    links = []
-            q_items: list[dict[str, Any]] = []
-            for idx, link in enumerate(links, start=1):
-                parsed = urlparse(link)
-                host = parsed.netloc.lower()
-                item = {
-                    "url": link,
-                    "host": host,
-                    "query": query,
-                    "rank": idx,
-                    "score": _score_url_for_query(link, query, idx),
-                    "search_provider": provider,
-                }
-                q_items.append(item)
-                if link not in dedupe or item["score"] > dedupe[link]["score"]:
-                    dedupe[link] = item
-            out_by_query[query] = q_items
+    for q in queries or []:
+        query = (q or "").strip()
+        if not query:
+            continue
+        links, provider = await collect_links_for_query(
+            query,
+            max_links=n,
+            headers=headers,
+        )
+        q_items: list[dict[str, Any]] = []
+        for idx, link in enumerate(links, start=1):
+            parsed = urlparse(link)
+            host = parsed.netloc.lower()
+            item = {
+                "url": link,
+                "host": host,
+                "query": query,
+                "rank": idx,
+                "score": _score_url_for_query(link, query, idx),
+                "search_provider": provider,
+            }
+            q_items.append(item)
+            if link not in dedupe or item["score"] > dedupe[link]["score"]:
+                dedupe[link] = item
+        out_by_query[query] = q_items
 
     deduped_sorted = sorted(dedupe.values(), key=lambda x: x["score"], reverse=True)
     return {

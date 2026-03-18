@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
+from app.core.config import settings
 from app.services.discovery.query_planner import build_discovery_query_plan
 from app.services.discovery.google_search import google_search_collect_links
 from app.services.discovery.google_browser_search import google_search_collect_links_browser
@@ -168,11 +169,12 @@ async def run_automated_search_harvester(
     google_queries = (plan.get("google_queries") or [])[: max(1, max_queries_per_source)]
     linkedin_queries = (plan.get("linkedin_queries") or [])[: max(1, max_queries_per_source)]
 
-    google_http = await google_search_collect_links(
-        google_queries,
-        max_links_per_query=max_links_per_query,
-    )
-    google_http_items = _clean_urls(google_http.get("deduped_results") or [], "google_http")
+    google_http: dict[str, Any] = {
+        "queries_count": 0,
+        "total_deduped": 0,
+        "deduped_results": [],
+    }
+    google_http_items: list[dict[str, Any]] = []
 
     google_browser_items: list[dict[str, Any]] = []
     google_browser: dict[str, Any] = {
@@ -181,21 +183,47 @@ async def run_automated_search_harvester(
         "deduped_results": [],
         "total_deduped": 0,
     }
-    if use_browser_google:
+    should_use_browser = bool(use_browser_google and getattr(settings, "SEARCH_ENABLE_GOOGLE", True))
+    if should_use_browser:
         google_browser = await google_search_collect_links_browser(
             google_queries,
             max_links_per_query=max_links_per_query,
         )
-        google_browser_items = _clean_urls(
+        raw_browser_items = _clean_urls(
             google_browser.get("deduped_results") or [],
             "google_browser",
         )
+        if bool(google_browser.get("fallback_used")):
+            # Browser path already reused HTTP collector; avoid re-running HTTP and duplicate scoring.
+            google_http = {
+                "queries_count": google_browser.get("queries_count"),
+                "total_deduped": google_browser.get("total_deduped"),
+                "deduped_results": google_browser.get("deduped_results") or [],
+            }
+            google_http_items = _clean_urls(google_http.get("deduped_results") or [], "google_http")
+            google_browser_items = []
+        elif raw_browser_items:
+            google_browser_items = raw_browser_items
+        else:
+            google_http = await google_search_collect_links(
+                google_queries,
+                max_links_per_query=max_links_per_query,
+            )
+            google_http_items = _clean_urls(google_http.get("deduped_results") or [], "google_http")
+    else:
+        google_http = await google_search_collect_links(
+            google_queries,
+            max_links_per_query=max_links_per_query,
+        )
+        google_http_items = _clean_urls(google_http.get("deduped_results") or [], "google_http")
 
     linkedin = await discover_linkedin_candidates(
         queries=linkedin_queries,
         session_id=linkedin_session_id,
         li_at_cookie=linkedin_li_at_cookie,
         max_links_per_query=max_links_per_query,
+        # Keep harvest latency bounded; authenticated browser discovery is available via dedicated endpoint.
+        use_authenticated_browser=False,
     )
     if int(linkedin.get("total_ranked") or 0) <= 0:
         keywords = list(plan.get("keywords") or [])
@@ -216,6 +244,7 @@ async def run_automated_search_harvester(
                 session_id=(linkedin.get("session") or {}).get("session_id") or linkedin_session_id,
                 li_at_cookie=linkedin_li_at_cookie,
                 max_links_per_query=max_links_per_query,
+                use_authenticated_browser=False,
             )
     linkedin_items = _clean_urls(linkedin.get("ranked_results") or [], "linkedin")
 

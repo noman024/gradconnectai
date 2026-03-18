@@ -83,3 +83,45 @@ def test_verified_filter_drops_noisy_domains():
     assert dropped == 1
     assert len(verified) == 2
     assert all(v.get("verification_reason") for v in verified)
+
+
+def test_harvester_skips_http_when_browser_already_fallbacked(monkeypatch):
+    monkeypatch.setattr(harvester.settings, "SEARCH_ENABLE_GOOGLE", True)
+
+    async def _should_not_be_called(*args, **kwargs):
+        raise AssertionError("google_search_collect_links should not run when browser fallback_used is true")
+
+    async def _fake_google_browser(*args, **kwargs):
+        return {
+            "available": True,
+            "fallback_used": True,
+            "queries_count": 1,
+            "total_deduped": 1,
+            "deduped_results": [
+                {"url": "https://uni.edu/faculty", "host": "uni.edu", "score": 0.7, "query": "q"}
+            ],
+        }
+
+    async def _fake_linkedin(*args, **kwargs):
+        return {
+            "session": {"session_id": "s1"},
+            "queries_count": 1,
+            "total_ranked": 0,
+            "ranked_results": [],
+        }
+
+    monkeypatch.setattr(harvester, "google_search_collect_links", _should_not_be_called)
+    monkeypatch.setattr(harvester, "google_search_collect_links_browser", _fake_google_browser)
+    monkeypatch.setattr(harvester, "discover_linkedin_candidates", _fake_linkedin)
+
+    out = asyncio.run(
+        harvester.run_automated_search_harvester(
+            research_topics=["machine learning"],
+            preferences={"fields": ["NLP"]},
+            use_browser_google=True,
+            top_k=10,
+        )
+    )
+    assert out["google_http"]["total_deduped"] == 1
+    assert out["google_browser"]["total_deduped"] == 1
+    assert out["total_seed_urls"] >= 1

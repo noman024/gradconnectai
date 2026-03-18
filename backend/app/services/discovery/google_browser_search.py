@@ -44,6 +44,16 @@ async def google_search_collect_links_browser(
     max_links_per_query: int = 10,
 ) -> dict[str, Any]:
     n = max(1, min(int(max_links_per_query), 20))
+    if not bool(getattr(settings, "SEARCH_ENABLE_GOOGLE", True)):
+        return {
+            "engine": "playwright",
+            "available": False,
+            "error": "google_provider_disabled",
+            "queries_count": len([q for q in queries or [] if (q or "").strip()]),
+            "per_query": {},
+            "deduped_results": [],
+            "total_deduped": 0,
+        }
     if async_playwright is None:
         return {
             "engine": "playwright",
@@ -156,9 +166,25 @@ async def google_search_collect_links_browser(
             await browser.close()
 
     deduped_sorted = sorted(dedup.values(), key=lambda x: x["score"], reverse=True)
+    if not deduped_sorted:
+        # If browser execution succeeds but yields no parseable links, reuse the robust HTTP collector.
+        fallback = await google_search_collect_links(
+            queries,
+            max_links_per_query=n,
+        )
+        return {
+            "engine": "playwright",
+            "available": True,
+            "fallback_used": True,
+            "queries_count": fallback.get("queries_count"),
+            "per_query": fallback.get("per_query"),
+            "deduped_results": fallback.get("deduped_results"),
+            "total_deduped": fallback.get("total_deduped"),
+        }
     return {
         "engine": "playwright",
         "available": True,
+        "fallback_used": False,
         "queries_count": len(by_query),
         "per_query": by_query,
         "deduped_results": deduped_sorted,
