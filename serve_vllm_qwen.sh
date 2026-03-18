@@ -11,10 +11,10 @@ set -euo pipefail
 # Then set in backend/.env:
 #   LLM_BASE_URL=http://localhost:8010/v1
 #   LLM_API_KEY=EMPTY
-#   LLM_MODEL=Qwen/Qwen3.5-0.8B
+#   LLM_MODEL=Qwen/Qwen3.5-9B
 
 PORT="${1:-8010}"
-MODEL="${VLLM_MODEL:-Qwen/Qwen3.5-0.8B}"
+MODEL="${VLLM_MODEL:-Qwen/Qwen3.5-9B}"
 
 # Prefer pip-installed vllm (more stable) over repo clone
 if command -v vllm &>/dev/null; then
@@ -47,4 +47,3 @@ exec vllm serve "${MODEL}" \
   --tensor-parallel-size 1 \
   --max-model-len 8192 \
   --language-model-only
-

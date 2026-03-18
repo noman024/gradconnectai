@@ -1,5 +1,8 @@
 # GradConnectAI
 
+- **Author:** MD Mutasim Billah Noman
+- **Last Updated:** 18-Mar-2026
+
 AI-driven supervisor discovery and matching for Master's, PhD, and Postdoc students. Discovers potential supervisors from public academic sources, matches them to student profiles via semantic similarity and opportunity signals, and generates personalized outreach email drafts.
 
 ## Architecture
