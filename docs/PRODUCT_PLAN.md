@@ -11,6 +11,29 @@ GradConnectAI helps Master's, PhD, and Postdoc applicants:
 3. Rank supervisors by semantic fit and opportunity score.
 4. Generate personalized email drafts for student review and manual sending.
 
+## Expected end-to-end workflow
+
+1. **Student profile ingestion**
+   - User uploads a CV PDF or pastes CV text.
+   - System validates input, stores student profile, and extracts research topics/skills.
+2. **Student understanding and query planning**
+   - System converts CV signal into structured interests (topics, methods, domains, preferences).
+   - System constructs SEO-friendly search intents/keywords for external discovery.
+3. **Search and URL collection (planned expansion)**
+   - Run targeted searches on Google and LinkedIn (including LinkedIn posts) using generated queries.
+   - Collect top links/posts and prioritize likely supervisor/opportunity sources.
+4. **Crawl and content normalization**
+   - Crawl shortlisted pages and normalize content into LLM-ready markdown/text.
+5. **LLM extraction and evidence gating**
+   - Use Qwen (Ollama/vLLM via OpenAI-compatible API) to extract professor candidates and opportunity signals.
+   - Enforce evidence gates (name + email/profile_url) before persistence.
+6. **Scoring and ranking**
+   - Build embeddings and compute semantic fit against student profile.
+   - Combine fit score with opportunity score for final ranking.
+7. **User-facing output**
+   - Show ranked supervisors with details in UI.
+   - Generate personalized outreach draft for user review and manual sending.
+
 ## Current architecture
 
 - Frontend: Next.js App Router dashboard (`/profile`, `/matches`, `/email/[professorId]`).
@@ -54,9 +77,21 @@ GradConnectAI helps Master's, PhD, and Postdoc applicants:
 
 ### Product capabilities
 
-- [ ] Build "own SERP" query planner and browser-based Google search ingestion.
-- [ ] Add LinkedIn post/profile discovery with session management and recency weighting.
+- [ ] Build CV-driven query planner to generate SEO-friendly Google/LinkedIn search keywords.
+- [ ] Implement browser-based Google search ingestion (top links collection + dedupe + scoring).
+- [ ] Implement LinkedIn post/profile discovery with session management and recency weighting.
+- [ ] Add URL prioritization layer before crawl (source quality + relevance + freshness).
 - [ ] Expand opportunity extraction into explicit structured opportunities + explanations in UI.
+
+### Workflow sync checklist (expected vs implemented)
+
+- [x] CV upload/paste -> topic extraction -> student profile persistence.
+- [ ] CV-derived query generation for Google/LinkedIn discovery.
+- [ ] Automated Google + LinkedIn search harvesting of top links/posts.
+- [x] Crawl + normalize + Qwen extraction from seed URLs.
+- [x] Evidence-gated acceptance before professor persistence.
+- [x] Semantic + opportunity ranking in matches endpoint.
+- [x] Personalized draft generation in email endpoint.
 
 ### Security and accounts
 

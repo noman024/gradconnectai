@@ -12,6 +12,13 @@ AI-driven supervisor discovery and matching for Master's, PhD, and Postdoc stude
 - **Data:** PostgreSQL + pgvector
 - **LLM:** OpenAI-compatible endpoint (Ollama or vLLM)
 
+## System Pipeline
+
+- Student uploads CV (PDF/text) -> backend extracts topics/skills and builds profile embedding.
+- System constructs discovery intents/keywords -> searches and selects high-value source URLs/posts (Google/LinkedIn roadmap).
+- Crawl4AI fetches and normalizes pages -> Qwen extracts professor/opportunity signals with evidence gating.
+- Matching ranks supervisors by semantic fit + opportunity score -> user gets ranked results and personalized email drafts.
+
 ## Repository Layout
 
 ```text
