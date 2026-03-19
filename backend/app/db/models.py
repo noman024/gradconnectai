@@ -7,6 +7,12 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Optional
 
+from app.core.timezone import now_dhaka
+
+
+def _dhaka_now() -> datetime:
+    return now_dhaka()
+
 from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Text, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -21,8 +27,8 @@ class Base(DeclarativeBase):
     pass
 
 
-# Embedding dimension must match the model (e.g. 768 for many sentence-transformers)
-EMBEDDING_DIM = 768
+# Embedding dimension must match the model output (384 for all-MiniLM-L6-v2).
+EMBEDDING_DIM = 384
 
 
 class OpportunityType(str, Enum):
@@ -49,8 +55,8 @@ class Professor(Base):
     last_checked: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     active_flag: Mapped[bool] = mapped_column(Boolean, default=False)
     sources: Mapped[list] = mapped_column(JSONB, default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_dhaka_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_dhaka_now, onupdate=_dhaka_now)
 
     opportunities: Mapped[list["Opportunity"]] = relationship(back_populates="professor", cascade="all, delete-orphan")
     snapshots: Mapped[list["ProfessorSnapshot"]] = relationship(back_populates="professor", cascade="all, delete-orphan")
@@ -71,7 +77,7 @@ class ProfessorSnapshot(Base):
     sources: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     valid_to: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_dhaka_now)
 
     professor: Mapped["Professor"] = relationship(back_populates="snapshots")
 
@@ -87,8 +93,8 @@ class Opportunity(Base):
     source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     expired: Mapped[bool] = mapped_column(Boolean, default=False)
     valid_until: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_dhaka_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_dhaka_now, onupdate=_dhaka_now)
 
     professor: Mapped["Professor"] = relationship(back_populates="opportunities")
 
@@ -105,8 +111,8 @@ class Student(Base):
     experience_snippet: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # preferences: { "countries": [], "universities": [], "fields": [] }
     preferences: Mapped[dict] = mapped_column(JSONB, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_dhaka_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_dhaka_now, onupdate=_dhaka_now)
 
     matches: Mapped[list["Match"]] = relationship(back_populates="student", cascade="all, delete-orphan")
     email_drafts: Mapped[list["EmailDraft"]] = relationship(back_populates="student", cascade="all, delete-orphan")
@@ -120,8 +126,8 @@ class Match(Base):
     score: Mapped[float] = mapped_column(Float, nullable=False)
     opportunity_score: Mapped[float] = mapped_column(Float, nullable=False)
     final_rank: Mapped[float] = mapped_column(Float, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_dhaka_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_dhaka_now, onupdate=_dhaka_now)
 
     student: Mapped["Student"] = relationship(back_populates="matches")
     professor: Mapped["Professor"] = relationship()
@@ -135,7 +141,7 @@ class EmailDraft(Base):
     professor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("professors.id", ondelete="CASCADE"), nullable=False)
     subject: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_dhaka_now)
 
     student: Mapped["Student"] = relationship(back_populates="email_drafts")
     professor: Mapped["Professor"] = relationship()
@@ -150,7 +156,7 @@ class AuditLog(Base):
     resource_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     resource_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     details: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_dhaka_now)
 
 
 # =========================================================
@@ -163,13 +169,13 @@ class SourceDocument(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     url: Mapped[str] = mapped_column(Text, nullable=False)
-    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_dhaka_now, nullable=False)
     content_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status_code: Mapped[Optional[int]] = mapped_column(nullable=True)
     robots_allowed: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     content_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     content_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_dhaka_now)
 
 
 class ExtractionRun(Base):
@@ -182,7 +188,7 @@ class ExtractionRun(Base):
     extractor: Mapped[str] = mapped_column(Text, nullable=False)
     llm_model: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     prompt_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_dhaka_now, nullable=False)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     success: Mapped[bool] = mapped_column(Boolean, default=False)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -208,4 +214,4 @@ class ProfessorEvidence(Base):
     snippet: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     selector: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_dhaka_now)

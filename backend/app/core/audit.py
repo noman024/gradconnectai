@@ -7,6 +7,7 @@ from typing import Any
 
 from app.db.models import AuditLog
 from app.db.session import get_session
+from app.core.timezone import to_dhaka
 
 
 def log_audit(
@@ -46,7 +47,7 @@ def get_recent_audit(limit: int = 100) -> list[dict[str, Any]]:
                 "resource_type": r.resource_type,
                 "resource_id": r.resource_id,
                 "details": r.details,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "created_at": to_dhaka(r.created_at).isoformat() if r.created_at else None,
             }
             for r in rows
         ]

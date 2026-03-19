@@ -5,7 +5,8 @@ Scores links by source quality, topical relevance, and freshness hints.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
+from app.core.timezone import now_dhaka
 
 
 def _score_one(url: str, university_name: str) -> float:
@@ -33,7 +34,7 @@ def _score_one(url: str, university_name: str) -> float:
         score += 1.0
 
     # Freshness hints: prefer current/next year pages if year appears.
-    now = datetime.now(timezone.utc).year
+    now = now_dhaka().year
     if str(now) in u:
         score += 0.75
     if str(now + 1) in u:

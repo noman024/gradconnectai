@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from math import log10
 from typing import Any
 from urllib.parse import quote_plus, unquote
@@ -21,6 +21,7 @@ import httpx
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.timezone import now_dhaka
 from app.services.discovery.google_search import (
     collect_links_for_query,
 )
@@ -34,15 +35,15 @@ except Exception:  # pragma: no cover - optional/runtime dependency
     async_playwright = None  # type: ignore
 
 
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+def _now() -> datetime:
+    return now_dhaka()
 
 
 _SESSIONS: dict[str, dict[str, Any]] = {}
 
 
 def _year_hints() -> list[int]:
-    now = _utcnow().year
+    now = _now().year
     return [now + 1, now, now - 1, now - 2]
 
 
@@ -336,7 +337,7 @@ async def _discover_linkedin_links_browser(
 def _recency_weight(url: str, query: str | None = None) -> float:
     u = (url or "").lower()
     q = (query or "").lower()
-    now = _utcnow().year
+    now = _now().year
     score = 0.2
 
     # URL-based hints
@@ -418,7 +419,7 @@ def get_or_create_linkedin_session(
     li_at_cookie: str | None = None,
 ) -> dict[str, Any]:
     ttl_minutes = max(5, int(getattr(settings, "LINKEDIN_SESSION_TTL_MINUTES", 120) or 120))
-    now = _utcnow()
+    now = _now()
     sid = session_id or str(uuid.uuid4())
 
     current = _SESSIONS.get(sid)
@@ -456,7 +457,7 @@ def get_or_create_linkedin_session(
 
 
 def _purge_expired_sessions() -> None:
-    now = _utcnow()
+    now = _now()
     expired = [sid for sid, rec in _SESSIONS.items() if rec.get("expires_at") and rec["expires_at"] <= now]
     for sid in expired:
         _SESSIONS.pop(sid, None)

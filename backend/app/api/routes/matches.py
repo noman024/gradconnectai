@@ -8,6 +8,8 @@ from app.services.store import (
     professor_get,
     matches_for_student,
     matches_upsert,
+    matches_latest_timestamp,
+    professors_updated_since,
     opportunities_for_professor,
 )
 from app.services.matching.engine import rank_matches, MatchResult
@@ -88,7 +90,16 @@ async def list_matches(student_id: str):
     student_emb = student.get("embedding")
     has_embedding = student_emb is not None and len(student_emb) > 0
     profs = professors_list(include_embedding=True)
-    if not existing and has_embedding and len(profs) > 0:
+
+    needs_recompute = False
+    if not existing:
+        needs_recompute = True
+    else:
+        last_match_ts = matches_latest_timestamp(student_id)
+        if last_match_ts and professors_updated_since(last_match_ts):
+            needs_recompute = True
+
+    if needs_recompute and has_embedding and len(profs) > 0:
         results = _compute_and_store_matches(student_id)
         logger.info("matches_returned", student_id=student_id, count=len(results), from_cache=False)
         raw = [{"professor_id": r.professor_id, "score": r.score, "opportunity_score": r.opportunity_score, "final_rank": r.final_rank} for r in results]

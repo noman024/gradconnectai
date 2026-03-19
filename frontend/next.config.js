@@ -24,6 +24,7 @@ if (fs.existsSync(sharedEnvPath)) {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  output: process.env.DOCKER_BUILD === "1" ? "standalone" : undefined,
   async rewrites() {
     const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8009";
     return [

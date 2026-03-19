@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS professors (
     lab_url TEXT,
     lab_focus TEXT,
     opportunity_score FLOAT DEFAULT 0.5 CHECK (opportunity_score >= 0 AND opportunity_score <= 1),
-    embedding vector(768),  -- adjust dimension to match your embedding model
+    embedding vector(384),  -- matches all-MiniLM-L6-v2 output dimension
     embedding_model_version TEXT,
     last_checked TIMESTAMPTZ,
     active_flag BOOLEAN DEFAULT false,
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS students (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     research_topics JSONB DEFAULT '[]',
-    embedding vector(768),
+    embedding vector(384),
     embedding_model_version TEXT,
     cv_file TEXT,
     experience_snippet TEXT,

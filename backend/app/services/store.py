@@ -5,7 +5,7 @@ Maps student_id -> Student rows, professor_id -> Professor rows, etc.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from typing import Any, List
 
 from sqlalchemy import select, delete, and_
@@ -23,6 +23,7 @@ from app.db.models import (
     ProfessorEvidence,
 )
 from app.db.session import get_session
+from app.core.timezone import now_dhaka, to_dhaka
 
 
 def _parse_datetime(val: Any) -> datetime | None:
@@ -45,6 +46,11 @@ def generate_id() -> str:
 
 def _uuid(id_str: str):
     return uuid.UUID(id_str)
+
+
+def _iso_dhaka(dt: datetime | None) -> str | None:
+    converted = to_dhaka(dt)
+    return converted.isoformat() if converted else None
 
 
 def source_document_create(
@@ -168,7 +174,7 @@ def professor_set(
             research_topics=obj.research_topics,
             lab_url=obj.lab_url,
             sources=obj.sources,
-            valid_from=datetime.utcnow(),
+            valid_from=now_dhaka(),
             valid_to=None,
         )
         db.add(snap)
@@ -257,6 +263,25 @@ def professors_list(*, include_embedding: bool = False) -> list[dict[str, Any]]:
                 item["embedding"] = p.embedding
             result.append(item)
         return result
+
+
+def matches_latest_timestamp(student_id: str) -> datetime | None:
+    """Return the most recent updated_at of matches for a student, or None if none exist."""
+    with get_session() as db:
+        sid = _uuid(student_id)
+        row = db.execute(
+            select(Match.updated_at).where(Match.student_id == sid).order_by(Match.updated_at.desc()).limit(1)
+        ).scalar_one_or_none()
+        return row
+
+
+def professors_updated_since(since: datetime) -> bool:
+    """Return True if any professor has been updated after the given timestamp."""
+    with get_session() as db:
+        row = db.execute(
+            select(Professor.id).where(Professor.updated_at > since).limit(1)
+        ).scalar_one_or_none()
+        return row is not None
 
 
 def matches_upsert(student_id: str, professor_id: str, score: float, opportunity_score: float, final_rank: float) -> None:
@@ -415,19 +440,18 @@ def email_drafts_for_student(student_id: str) -> list[dict[str, Any]]:
     """List email drafts for a student, newest first."""
     with get_session() as db:
         sid = _uuid(student_id)
-        rows = (
-            db.query(EmailDraft)
-            .filter(EmailDraft.student_id == sid)
+        rows = db.execute(
+            select(EmailDraft)
+            .where(EmailDraft.student_id == sid)
             .order_by(EmailDraft.created_at.desc())
-            .all()
-        )
+        ).scalars().all()
         return [
             {
                 "id": str(r.id),
                 "student_id": str(r.student_id),
                 "professor_id": str(r.professor_id),
                 "subject": r.subject,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "created_at": _iso_dhaka(r.created_at),
             }
             for r in rows
         ]
@@ -437,20 +461,19 @@ def professor_snapshots_for_professor(professor_id: str) -> list[dict[str, Any]]
     """List snapshots for a professor, newest first."""
     with get_session() as db:
         pid = _uuid(professor_id)
-        rows = (
-            db.query(ProfessorSnapshot)
-            .filter(ProfessorSnapshot.professor_id == pid)
+        rows = db.execute(
+            select(ProfessorSnapshot)
+            .where(ProfessorSnapshot.professor_id == pid)
             .order_by(ProfessorSnapshot.valid_from.desc())
-            .all()
-        )
+        ).scalars().all()
         return [
             {
                 "id": str(r.id),
                 "professor_id": str(r.professor_id),
                 "name": r.name,
                 "university": r.university,
-                "valid_from": r.valid_from.isoformat() if r.valid_from else None,
-                "valid_to": r.valid_to.isoformat() if r.valid_to else None,
+                "valid_from": _iso_dhaka(r.valid_from),
+                "valid_to": _iso_dhaka(r.valid_to),
             }
             for r in rows
         ]
@@ -460,23 +483,22 @@ def opportunities_for_professor(professor_id: str) -> list[dict[str, Any]]:
     """List opportunities for a professor, newest first."""
     with get_session() as db:
         pid = _uuid(professor_id)
-        rows = (
-            db.query(Opportunity)
-            .filter(Opportunity.professor_id == pid)
+        rows = db.execute(
+            select(Opportunity)
+            .where(Opportunity.professor_id == pid)
             .order_by(Opportunity.created_at.desc())
-            .all()
-        )
+        ).scalars().all()
         return [
             {
                 "id": str(r.id),
                 "professor_id": str(r.professor_id),
                 "type": r.type.value if hasattr(r.type, "value") else str(r.type),
                 "funding": r.funding,
-                "deadline": r.deadline.isoformat() if r.deadline else None,
+                "deadline": _iso_dhaka(r.deadline),
                 "source": r.source,
                 "expired": r.expired,
-                "valid_until": r.valid_until.isoformat() if r.valid_until else None,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "valid_until": _iso_dhaka(r.valid_until),
+                "created_at": _iso_dhaka(r.created_at),
             }
             for r in rows
         ]
@@ -492,22 +514,26 @@ def evidence_retention_cleanup(*, older_than_days: int = 90, dry_run: bool = Tru
     - source_documents.fetched_at
     """
     days = max(1, int(older_than_days))
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = now_dhaka() - timedelta(days=days)
 
     with get_session() as db:
-        evidence_q = db.query(ProfessorEvidence).filter(ProfessorEvidence.created_at < cutoff)
-        runs_q = db.query(ExtractionRun).filter(ExtractionRun.started_at < cutoff)
-        docs_q = db.query(SourceDocument).filter(SourceDocument.fetched_at < cutoff)
+        from sqlalchemy import func
 
-        evidence_count = evidence_q.count()
-        runs_count = runs_q.count()
-        docs_count = docs_q.count()
+        evidence_count = db.execute(
+            select(func.count()).select_from(ProfessorEvidence).where(ProfessorEvidence.created_at < cutoff)
+        ).scalar() or 0
+        runs_count = db.execute(
+            select(func.count()).select_from(ExtractionRun).where(ExtractionRun.started_at < cutoff)
+        ).scalar() or 0
+        docs_count = db.execute(
+            select(func.count()).select_from(SourceDocument).where(SourceDocument.fetched_at < cutoff)
+        ).scalar() or 0
 
         if dry_run:
             return {
                 "dry_run": True,
                 "older_than_days": days,
-                "cutoff_iso": cutoff.isoformat(),
+                "cutoff_iso": _iso_dhaka(cutoff),
                 "would_delete": {
                     "professor_evidence": evidence_count,
                     "extraction_runs": runs_count,
@@ -515,16 +541,21 @@ def evidence_retention_cleanup(*, older_than_days: int = 90, dry_run: bool = Tru
                 },
             }
 
-        # Delete in child-to-parent order for predictable behavior.
-        deleted_evidence = evidence_q.delete(synchronize_session=False)
-        deleted_runs = runs_q.delete(synchronize_session=False)
-        deleted_docs = docs_q.delete(synchronize_session=False)
+        deleted_evidence = db.execute(
+            delete(ProfessorEvidence).where(ProfessorEvidence.created_at < cutoff)
+        ).rowcount
+        deleted_runs = db.execute(
+            delete(ExtractionRun).where(ExtractionRun.started_at < cutoff)
+        ).rowcount
+        deleted_docs = db.execute(
+            delete(SourceDocument).where(SourceDocument.fetched_at < cutoff)
+        ).rowcount
         db.commit()
 
         return {
             "dry_run": False,
             "older_than_days": days,
-            "cutoff_iso": cutoff.isoformat(),
+            "cutoff_iso": _iso_dhaka(cutoff),
             "deleted": {
                 "professor_evidence": int(deleted_evidence or 0),
                 "extraction_runs": int(deleted_runs or 0),

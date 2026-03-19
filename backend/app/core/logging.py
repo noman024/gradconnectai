@@ -8,6 +8,14 @@ import structlog
 from structlog import contextvars as struct_contextvars
 from structlog.stdlib import ProcessorFormatter
 
+from app.core.timezone import now_dhaka
+
+
+def _dhaka_timestamper(_logger, _method_name, event_dict):
+    """Attach an ISO timestamp in Asia/Dhaka (+06:00)."""
+    event_dict["timestamp"] = now_dhaka().isoformat(timespec="microseconds")
+    return event_dict
+
 
 def setup_logging() -> None:
     """Configure structlog + stdlib logging to write all logs into log/backend.log."""
@@ -19,8 +27,6 @@ def setup_logging() -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "backend.log"
 
-    timestamper = structlog.processors.TimeStamper(fmt="iso")
-
     formatter = ProcessorFormatter(
         processor=structlog.dev.ConsoleRenderer()
         if sys.stderr.isatty()
@@ -28,7 +34,7 @@ def setup_logging() -> None:
         foreign_pre_chain=[
             struct_contextvars.merge_contextvars,
             structlog.stdlib.add_log_level,
-            timestamper,
+            _dhaka_timestamper,
         ],
     )
 
@@ -44,7 +50,7 @@ def setup_logging() -> None:
         processors=[
             struct_contextvars.merge_contextvars,
             structlog.stdlib.add_log_level,
-            timestamper,
+            _dhaka_timestamper,
             ProcessorFormatter.wrap_for_formatter,
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),

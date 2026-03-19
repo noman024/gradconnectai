@@ -5,10 +5,11 @@ Stores last_checked and active_flag when persisting to DB (see crawler.last_chec
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from app.core.logging import get_logger
+from app.core.timezone import now_dhaka
 from app.services.discovery.crawl4ai_client import crawl_markdown
 from app.services.discovery.url_prioritizer import prioritize_seed_urls
 from app.services.llm_client import extract_professors_from_markdown
@@ -29,7 +30,7 @@ class RawProfessor:
     opportunity_explanation: str | None = None
     sources: list[str] = field(default_factory=list)
     evidence: list[dict[str, Any]] = field(default_factory=list)
-    last_checked: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_checked: datetime = field(default_factory=now_dhaka)
     active_flag: bool = False
 
 
@@ -81,7 +82,7 @@ async def run_university_lab_pipeline(seed_urls: list[str], university_name: str
                     opportunity_explanation=p.get("opportunity_explanation"),
                     sources=[res.url],
                     evidence=(p.get("_evidence") or []),
-                    last_checked=datetime.now(timezone.utc),
+                    last_checked=now_dhaka(),
                     active_flag=True,
                 )
             )

@@ -1,7 +1,7 @@
 # GradConnectAI
 
 - **Author:** MD Mutasim Billah Noman
-- **Last Updated:** 18-Mar-2026
+- **Last Updated:** 19-Mar-2026
 
 AI-driven supervisor discovery and matching for Master's, PhD, and Postdoc students.
 
@@ -219,11 +219,6 @@ curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/query-plan \
   -H "Content-Type: application/json" \
   -d '{"research_topics":["machine learning","NLP"],"preferences":{"universities":["UIU"],"countries":["Bangladesh"],"degree_targets":["MS","PhD"]}}' | jq .
 
-# Google ingestion MVP (collect + dedupe + score links)
-curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/google-search \
-  -H "Content-Type: application/json" \
-  -d '{"queries":["machine learning professor open position"],"max_links_per_query":10}' | jq .
-
 # Browser-based Google ingestion MVP (Playwright-backed)
 curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/google-search-browser \
   -H "Content-Type: application/json" \
@@ -271,16 +266,40 @@ curl -s -X POST http://127.0.0.1:8009/api/v1/admin/cleanup/evidence \
   -d '{"older_than_days":90,"dry_run":true}' | jq .
 ```
 
+## Docker Deployment
+
+```bash
+# Build and start all services (Postgres + backend + frontend)
+docker compose up --build -d
+
+# View logs
+docker compose logs -f backend
+
+# Tear down
+docker compose down
+```
+
+The `docker-compose.yml` includes PostgreSQL with pgvector, the backend API, and the frontend.
+Schema is auto-applied on first Postgres startup. Ensure `config/app.env` exists before running.
+
 ## Run Tests
 
 ```bash
 cd backend
 source .venv/bin/activate
-python -m pytest -q
+python -m pytest -v
 ```
 
-Evidence-gating fixtures and tests live under `backend/tests/fixtures/evidence_gate` and
-`backend/tests/test_evidence_gate.py`.
+**Test coverage (92 tests):**
+- Matching engine (cosine similarity, ranking, cold start)
+- Input validation (name, CV text, preferences, UUID)
+- Email generation (topic sanitization, fallback, meta-reasoning cleanup)
+- Embedding service (dimension, fallback, model loading)
+- Evidence gate (acceptance/rejection logic with fixtures)
+- Google/LinkedIn/browser search (URL building, scoring, dedup)
+- Harvester (merge, filtering, orchestration)
+- Query planner (query generation, empty inputs)
+- URL prioritizer (ranking heuristics)
 
 ## CI
 

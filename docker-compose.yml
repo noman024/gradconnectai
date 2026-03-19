@@ -1,0 +1,50 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: gradconnect
+      POSTGRES_USER: gradconnect
+      POSTGRES_PASSWORD: gradconnect
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/app/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gradconnect"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8009:8009"
+    env_file:
+      - ./config/app.env
+    environment:
+      SYNC_DATABASE_URL: postgresql://gradconnect:gradconnect@postgres:5432/gradconnect
+      ENVIRONMENT: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_BASE: http://backend:8009
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:

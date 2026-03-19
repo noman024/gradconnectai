@@ -172,10 +172,7 @@ Requirements:
 
         # 2) Sentence-level filtering to remove meta sentences embedded in paragraphs.
         text = "\n".join(line_filtered)
-        # Naive sentence split on ., ?, ! while preserving delimiters.
-        import re as _re
-
-        parts = _re.split(r"([\.!?])", text)
+        parts = re.split(r"([\.!?])", text)
         sentences: list[str] = []
         for i in range(0, len(parts), 2):
             chunk = parts[i]

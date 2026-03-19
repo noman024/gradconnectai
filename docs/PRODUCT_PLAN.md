@@ -1,6 +1,6 @@
 # GradConnectAI Product Plan (Code-Synced)
 
-Last verified against repository code on 18-Mar-2026.
+Last verified against repository code on 19-Mar-2026.
 
 ## Product scope
 
@@ -48,7 +48,7 @@ GradConnectAI helps Master's, PhD, and Postdoc applicants:
 - [x] Profile creation from text (`POST /api/v1/students`) and PDF upload (`POST /api/v1/students/upload`).
 - [x] Topic extraction + embedding generation for student profiles.
 - [x] Discovery endpoint (`POST /api/v1/discovery/run`) using Crawl4AI markdown + LLM extraction.
-- [x] Google search ingestion MVP (`POST /api/v1/discovery/google-search`) for top-link collection + dedupe + scoring.
+- [x] Browser-based Google ingestion MVP (`POST /api/v1/discovery/google-search-browser`) for top-link collection + dedupe + scoring.
 - [x] Evidence-gated extraction (name + email/profile_url checks before persistence).
 - [x] Matching endpoint (`GET /api/v1/matches`) using semantic similarity + `opportunity_score`.
 - [x] Email draft generation endpoint (`POST /api/v1/email-drafts/generate`).
@@ -102,9 +102,21 @@ GradConnectAI helps Master's, PhD, and Postdoc applicants:
 
 ### Deployment and operations
 
-- [ ] Add Dockerfiles and Docker Compose for frontend, backend, worker, Postgres, and model services.
+- [x] Add Dockerfiles and Docker Compose for frontend, backend, Postgres (pgvector).
 - [ ] Introduce migration workflow (Alembic) for production-safe schema changes.
-- [x] Add CI (lint/tests/type checks) and initial E2E test coverage.
+- [x] Add CI (lint/tests/type checks) and smoke test coverage.
+- [ ] Add async background workers for long-running discovery tasks.
+
+### Code quality improvements completed (19-Mar-2026)
+
+- [x] Fix deprecated `datetime.utcnow()` → `datetime.now(timezone.utc)` across all models.
+- [x] Fix embedding dimension mismatch (384 vs 768 zero-padding) — schema and model now both use 384.
+- [x] Fix database session management — proper context manager with guaranteed close and connection pooling.
+- [x] Fix hard-coded embedding model name — now uses `settings.EMBEDDING_MODEL`.
+- [x] Fix stale matches — recomputes when professors are updated after last match calculation.
+- [x] Standardize SQLAlchemy query style (modern `select()` throughout).
+- [x] Add structured logging to previously silent exception handlers.
+- [x] Add comprehensive test suite (92 tests): matching, validation, email, embedding, discovery.
 
 ## Definition of done for production-ready MVP
 
@@ -112,5 +124,3 @@ GradConnectAI helps Master's, PhD, and Postdoc applicants:
 - Evidence-backed discovery with automated tests and measurable quality checks.
 - Async job workers for discovery/refresh to keep API responsive.
 - Reproducible containerized deployment and automated CI checks.
-
-

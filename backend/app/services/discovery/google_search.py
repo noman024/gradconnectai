@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from urllib.parse import quote_plus, unquote, urlparse
 from typing import Any
 
@@ -13,6 +13,7 @@ import httpx
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.timezone import now_dhaka
 
 logger = get_logger("discovery.google_search")
 
@@ -29,8 +30,8 @@ _BRAVE_LAST_REQUEST: float = 0.0
 _BRAVE_MIN_INTERVAL_S = 1.5
 
 
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+def _now() -> datetime:
+    return now_dhaka()
 
 
 def _split_csv(value: str | None) -> list[str]:
@@ -59,22 +60,22 @@ def _next_proxy() -> str | None:
 
 
 def _google_on_cooldown() -> bool:
-    return _GOOGLE_COOLDOWN_UNTIL is not None and _GOOGLE_COOLDOWN_UNTIL > _utcnow()
+    return _GOOGLE_COOLDOWN_UNTIL is not None and _GOOGLE_COOLDOWN_UNTIL > _now()
 
 
 def _mark_google_cooldown() -> None:
     global _GOOGLE_COOLDOWN_UNTIL
     seconds = max(10, int(getattr(settings, "SEARCH_GOOGLE_COOLDOWN_SECONDS", 300) or 300))
-    _GOOGLE_COOLDOWN_UNTIL = _utcnow() + timedelta(seconds=seconds)
+    _GOOGLE_COOLDOWN_UNTIL = _now() + timedelta(seconds=seconds)
 
 
 def _brave_on_cooldown() -> bool:
-    return _BRAVE_COOLDOWN_UNTIL is not None and _BRAVE_COOLDOWN_UNTIL > _utcnow()
+    return _BRAVE_COOLDOWN_UNTIL is not None and _BRAVE_COOLDOWN_UNTIL > _now()
 
 
 def _mark_brave_cooldown() -> None:
     global _BRAVE_COOLDOWN_UNTIL
-    _BRAVE_COOLDOWN_UNTIL = _utcnow() + timedelta(seconds=60)
+    _BRAVE_COOLDOWN_UNTIL = _now() + timedelta(seconds=60)
 
 
 async def _brave_throttle() -> None:

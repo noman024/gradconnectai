@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import asyncio
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.timezone import DHAKA_TZ, now_dhaka, to_dhaka
 
 log = get_logger("discovery.browser_use")
 
@@ -65,7 +66,7 @@ def _activity_id_to_date(aid: int) -> datetime | None:
         return None
     try:
         ts_ms = aid >> 22
-        return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+        return datetime.fromtimestamp(ts_ms / 1000, tz=DHAKA_TZ)
     except Exception:
         return None
 
@@ -123,6 +124,86 @@ def _is_result_link(url: str) -> bool:
     return bool(host) and host not in _BLOCKED_HOSTS
 
 
+def _normalize_result_url(url: str) -> str:
+    """
+    Normalize a search result URL.
+    Handles DuckDuckGo redirect links like /l/?uddg=<encoded_url>.
+    """
+    try:
+        parsed = urlparse(url)
+        if "duckduckgo.com" in parsed.netloc and parsed.path.startswith("/l/"):
+            qs = parse_qs(parsed.query)
+            uddg = (qs.get("uddg") or [None])[0]
+            if uddg:
+                url = unquote(uddg)
+    except Exception:
+        return ""
+    clean = (url or "").split("#")[0].rstrip("/")
+    return clean
+
+
+def _is_valid_absolute_url(url: str) -> bool:
+    """
+    Strict URL validation to prevent hallucinated/breadcrumb-like strings.
+    """
+    if not url or any(ch.isspace() for ch in url):
+        return False
+    if "›" in url or "..." in url:
+        return False
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    if not parsed.netloc:
+        return False
+    return True
+
+
+def _extract_ddg_result_urls(html: str) -> list[str]:
+    """
+    Extract external result URLs from DuckDuckGo result anchors only.
+    This avoids accepting hallucinated URLs from agent memory/tool chatter.
+    """
+    out: list[str] = []
+    # DuckDuckGo can render result anchors with varying attribute order.
+    # Parse full anchor tags then inspect class/data-testid and href.
+    for tag in re.findall(r"<a\b[^>]*>", html, flags=re.IGNORECASE):
+        tag_l = tag.lower()
+        is_result_anchor = (
+            "result__a" in tag_l
+            or 'data-testid="result-title-a"' in tag_l
+            or "data-testid='result-title-a'" in tag_l
+        )
+        if not is_result_anchor:
+            continue
+        m_href = re.search(r'href\s*=\s*("([^"]+)"|\'([^\']+)\')', tag, flags=re.IGNORECASE)
+        if not m_href:
+            continue
+        href = m_href.group(2) or m_href.group(3) or ""
+        clean = _normalize_result_url(href)
+        if clean and _is_valid_absolute_url(clean) and _is_result_link(clean) and clean not in out:
+            out.append(clean)
+    if out:
+        return out
+
+    # Fallback for layout variants where result markers are missing:
+    # gather absolute links and DuckDuckGo redirect targets, then filter strictly.
+    candidates: list[str] = []
+    for href in re.findall(r'href="([^"]+)"', html, flags=re.IGNORECASE):
+        clean = _normalize_result_url(href)
+        if clean and _is_valid_absolute_url(clean) and _is_result_link(clean):
+            candidates.append(clean)
+    # Order-preserving dedupe.
+    seen: set[str] = set()
+    for c in candidates:
+        if c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
 # ---------------------------------------------------------------------------
 #  General-purpose web search (all URLs)
 # ---------------------------------------------------------------------------
@@ -146,6 +227,7 @@ async def _browser_use_search_general(
     search_url = f"https://duckduckgo.com/?q={encoded_q}&df={df}&ia=web"
 
     collected_urls: list[str] = []
+    page_urls: list[str] = []
     log.info("browser_use_general_start", query=query[:80], search_url=search_url[:120])
 
     try:
@@ -153,16 +235,17 @@ async def _browser_use_search_general(
         browser = BrowserSession(browser_profile=_make_browser_profile())
         tools = Tools()
 
-        @tools.action(description="Save a URL you found in the search results.")
+        @tools.action(description="Save a URL found in href values from find_elements.")
         def save_url(url: str) -> str:
-            clean = url.split("?")[0].rstrip("/")
-            if _is_result_link(clean):
+            clean = _normalize_result_url(url)
+            if _is_valid_absolute_url(clean) and _is_result_link(clean):
                 if clean not in collected_urls:
                     collected_urls.append(clean)
                     return f"Saved ({len(collected_urls)} total): {clean}"
                 return f"Already saved: {clean}"
-            return f"Skipped (search engine URL): {url}"
+            return f"Skipped (invalid or non-result URL): {url}"
 
+        target = min(max_results, 8)
         task = f"""Collect result URLs from DuckDuckGo search results.
 
 Steps:
@@ -170,12 +253,19 @@ Steps:
 2. Wait 3 seconds for the page to load.
 3. Use the find_elements action with selector 'a.result__a' and attributes ["href"] to extract result links.
    If that gives no results, try selector 'a[data-testid="result-title-a"]' or 'a[href^="http"]'.
-4. For every href that points to an external site (not duckduckgo.com), call save_url with the full URL.
+4. For every href from find_elements:
+   - keep the href EXACTLY as returned,
+   - if it is a DuckDuckGo redirect, keep it as-is (save_url handles normalization),
+   - call save_url only for real absolute links.
 5. Scroll down to see more results.
-6. Repeat steps 3-5 until you have saved at least {min(max_results, 15)} URLs or no more results appear.
+6. Repeat steps 3-5 until you have saved at least {target} URLs or no more results appear.
 7. When done, call the done action.
 
-IMPORTANT: Use find_elements to extract links. Do NOT click individual results."""
+IMPORTANT:
+- Use find_elements output only. Never construct, rewrite, or guess URLs.
+- Do NOT use breadcrumb text as URL.
+- Do NOT click individual results.
+- As soon as you have {target} valid saved URLs, immediately call done."""
 
         agent = Agent(
             task=task, llm=llm, browser=browser, tools=tools,
@@ -187,10 +277,10 @@ IMPORTANT: Use find_elements to extract links. Do NOT click individual results."
         try:
             for page in await browser.get_all_pages():
                 try:
+                    page_urls.append(page.url)
                     html = await page.content()
-                    for m in re.findall(r'href="(https?://[^"]+)"', html):
-                        clean = m.split("?")[0].rstrip("/")
-                        if _is_result_link(clean) and clean not in collected_urls:
+                    for clean in _extract_ddg_result_urls(html):
+                        if clean not in collected_urls:
                             collected_urls.append(clean)
                 except Exception:
                     pass
@@ -205,6 +295,16 @@ IMPORTANT: Use find_elements to extract links. Do NOT click individual results."
     except Exception as exc:
         log.warning("browser_use_general_error", error=str(exc)[:300], query=query[:60])
         return {"urls": [], "total": 0, "error": str(exc)[:300], "agent_steps": 0}
+
+    # Guardrail: if agent drifted away from the intended query, force HTTP fallback upstream.
+    # We still require at least one DDG page URL to contain the query tokens.
+    tokens = [t.lower() for t in query.split() if len(t) > 2][:4]
+    query_mismatch = bool(page_urls) and bool(tokens) and not any(
+        all(tok in (u or "").lower() for tok in tokens[:2]) for u in page_urls
+    )
+    if query_mismatch:
+        log.warning("browser_use_general_query_mismatch", query=query[:80], page_urls=page_urls[:3])
+        return {"urls": [], "total": 0, "error": "query_mismatch", "agent_steps": steps}
 
     log.info("browser_use_general_done", urls_found=len(collected_urls), steps=steps, query=query[:60])
     return {"urls": collected_urls[:max_results], "total": len(collected_urls), "agent_steps": steps, "error": None}
@@ -235,6 +335,8 @@ async def browser_use_collect_links(
         total_steps += result.get("agent_steps", 0)
         if result.get("error"):
             errors.append(f"{q}: {result['error']}")
+        elif not (result.get("urls") or []):
+            errors.append(f"{q}: no_urls_extracted")
 
         items: list[dict[str, Any]] = []
         for idx, url in enumerate(result.get("urls") or [], start=1):
@@ -289,6 +391,7 @@ async def _browser_use_search_linkedin(
 
     collected_urls: list[str] = []
     all_page_texts: list[str] = []
+    page_urls: list[str] = []
     log.info("browser_use_linkedin_start", query=query[:80], search_url=search_url[:120])
 
     try:
@@ -296,16 +399,21 @@ async def _browser_use_search_linkedin(
         browser = BrowserSession(browser_profile=_make_browser_profile())
         tools = Tools()
 
-        @tools.action(description="Save a LinkedIn post URL. Pass the full URL.")
+        @tools.action(description="Save a LinkedIn post URL from href values.")
         def save_linkedin_url(url: str) -> str:
-            clean = url.split("?")[0].rstrip("/")
-            if "linkedin.com" in clean and ("/posts/" in clean or "/feed/update/" in clean):
+            clean = _normalize_result_url(url)
+            if (
+                _is_valid_absolute_url(clean)
+                and "linkedin.com" in clean
+                and ("/posts/" in clean or "/feed/update/" in clean)
+            ):
                 if clean not in collected_urls:
                     collected_urls.append(clean)
                     return f"Saved ({len(collected_urls)} total): {clean}"
                 return f"Already saved: {clean}"
             return f"Skipped (not a LinkedIn post URL): {url}"
 
+        target = min(max_results, 10)
         task = f"""Collect LinkedIn post URLs from DuckDuckGo search results.
 
 Steps:
@@ -314,10 +422,14 @@ Steps:
 3. Use the find_elements action with selector 'a[href*="linkedin.com"]' and attributes ["href"] to extract all LinkedIn links on the page.
 4. For every href that contains "linkedin.com/posts/" or "linkedin.com/feed/update/", call save_linkedin_url with the full URL.
 5. Scroll down to see more results.
-6. Repeat steps 3-5 until you have saved at least {min(max_results, 20)} URLs or no more results appear.
+6. Repeat steps 3-5 until you have saved at least {target} URLs or no more results appear.
 7. When done, call the done action.
 
-IMPORTANT: Use find_elements to extract links. Do NOT click individual results."""
+IMPORTANT:
+- Use find_elements output only. Never construct URLs.
+- Do NOT use text snippets as URLs.
+- Do NOT click individual results.
+- As soon as you have {target} valid URLs, call done."""
 
         agent = Agent(
             task=task, llm=llm, browser=browser, tools=tools,
@@ -329,6 +441,7 @@ IMPORTANT: Use find_elements to extract links. Do NOT click individual results."
         try:
             for page in await browser.get_all_pages():
                 try:
+                    page_urls.append(page.url)
                     all_page_texts.append(await page.content())
                 except Exception:
                     pass
@@ -344,10 +457,20 @@ IMPORTANT: Use find_elements to extract links. Do NOT click individual results."
         log.warning("browser_use_linkedin_error", error=str(exc)[:300], query=query[:60])
         return {"urls": [], "total": 0, "error": str(exc)[:300], "agent_steps": 0}
 
+    # Validate URLs against actual rendered page content.
+    validated_urls: list[str] = []
     for text in all_page_texts:
         for url in _extract_linkedin_post_urls(text):
-            if url not in collected_urls:
-                collected_urls.append(url)
+            if url not in validated_urls:
+                validated_urls.append(url)
+
+    # Keep only URLs observed in page content to prevent agent hallucinations.
+    if validated_urls:
+        collected_urls = [u for u in collected_urls if u in validated_urls] or validated_urls
+
+    # Guardrail: if page drifted away from LinkedIn post search, bubble up as error.
+    if not any("duckduckgo.com" in (u or "") for u in page_urls):
+        return {"urls": [], "total": 0, "error": "navigation_mismatch", "agent_steps": steps}
 
     log.info("browser_use_linkedin_done", urls_found=len(collected_urls), steps=steps, query=query[:60])
     return {"urls": collected_urls[:max_results], "total": len(collected_urls), "agent_steps": steps, "error": None}
@@ -385,7 +508,7 @@ async def browser_use_collect_linkedin_posts(
             errors.append(f"{q}: {result['error']}")
         await asyncio.sleep(2)
 
-    now = datetime.now(timezone.utc)
+    now = now_dhaka()
     scored: list[dict[str, Any]] = []
     for rank, url in enumerate(all_urls, start=1):
         aid_match = re.search(r"activity[:\-](\d{10,})", url)
@@ -414,7 +537,7 @@ async def browser_use_collect_linkedin_posts(
         scored.append({
             "url": url, "rank": rank, "score": score,
             "activity_id": activity_id,
-            "post_date": post_date.isoformat() if post_date else None,
+            "post_date": to_dhaka(post_date).isoformat() if post_date else None,
             "age_days": age_days, "recency_score": recency_score,
         })
 
