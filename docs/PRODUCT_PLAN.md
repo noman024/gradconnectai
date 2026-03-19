@@ -19,7 +19,7 @@ GradConnectAI helps Master's, PhD, and Postdoc applicants:
 2. **Student understanding and query planning**
    - System converts CV signal into structured interests (topics, methods, domains, preferences).
    - System constructs SEO-friendly search intents/keywords for external discovery.
-3. **Search and URL collection (planned expansion)**
+3. **Search and URL collection**
    - Run targeted searches on Google and LinkedIn (including LinkedIn posts) using generated queries.
    - Collect top links/posts and prioritize likely supervisor/opportunity sources.
 4. **Crawl and content normalization**
@@ -116,7 +116,7 @@ GradConnectAI helps Master's, PhD, and Postdoc applicants:
 - [x] Fix stale matches — recomputes when professors are updated after last match calculation.
 - [x] Standardize SQLAlchemy query style (modern `select()` throughout).
 - [x] Add structured logging to previously silent exception handlers.
-- [x] Add comprehensive test suite (92 tests): matching, validation, email, embedding, discovery.
+- [x] Add comprehensive test suite (100+ tests): matching, validation, email, embedding, discovery.
 
 ## Definition of done for production-ready MVP
 

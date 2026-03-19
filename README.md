@@ -15,7 +15,7 @@ AI-driven supervisor discovery and matching for Master's, PhD, and Postdoc stude
 ## System Pipeline
 
 - Student uploads CV (PDF/text) -> backend extracts topics/skills and builds profile embedding.
-- System constructs discovery intents/keywords -> searches and selects high-value source URLs/posts (Google/LinkedIn roadmap).
+- System constructs discovery intents/keywords -> searches and selects high-value source URLs/posts using Google/LinkedIn and integrated harvesters.
 - Seed URLs are prioritized by quality/relevance/freshness -> Crawl4AI fetches and normalizes pages -> Qwen extracts professor/opportunity signals with evidence gating.
 - Matching ranks supervisors by semantic fit + opportunity score, with opportunity explanations -> user gets ranked results and personalized email drafts.
 
@@ -293,7 +293,7 @@ source .venv/bin/activate
 python -m pytest -v
 ```
 
-**Test coverage (92 tests):**
+**Test coverage (104 tests):**
 - Matching engine (cosine similarity, ranking, cold start)
 - Input validation (name, CV text, preferences, UUID)
 - Email generation (topic sanitization, fallback, meta-reasoning cleanup)
@@ -309,6 +309,7 @@ python -m pytest -v
 GitHub Actions workflow is available at `.github/workflows/ci.yml` and runs:
 - backend `pytest`
 - frontend `npm run lint`
+- frontend `npm test`
 - frontend `npm run build`
 - API smoke checks (`/api/v1/health`, `/api/v1/health/ready`)
 
