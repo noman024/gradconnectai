@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.core.config import settings
 from app.db.session import get_session
@@ -28,8 +28,11 @@ async def readiness():
             "students": student_count,
         }
     except Exception as e:
-        return {
+        raise HTTPException(
+            status_code=503,
+            detail={
             "status": "not_ready",
             "database": "error",
             "error": str(e),
-        }
+            },
+        )

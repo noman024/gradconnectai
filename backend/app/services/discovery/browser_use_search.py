@@ -304,14 +304,17 @@ IMPORTANT:
                         for clean in _extract_ddg_result_urls(html):
                             if clean not in collected_urls:
                                 collected_urls.append(clean)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                    except Exception as exc:
+                        log.warning(
+                            "browser_use_general_page_inspect_failed",
+                            error=str(exc),
+                        )
+            except Exception as exc:
+                log.warning("browser_use_general_get_pages_failed", error=str(exc))
             try:
                 await browser.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("browser_use_general_close_failed", error=str(exc))
 
     # Guardrail: if agent drifted away from the intended query, force HTTP fallback upstream.
     # Apply only when no usable URLs were extracted to avoid false negatives on long runs.
@@ -470,14 +473,17 @@ IMPORTANT:
                     try:
                         page_urls.append(page.url)
                         all_page_texts.append(await page.content())
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                    except Exception as exc:
+                        log.warning(
+                            "browser_use_linkedin_page_inspect_failed",
+                            error=str(exc),
+                        )
+            except Exception as exc:
+                log.warning("browser_use_linkedin_get_pages_failed", error=str(exc))
             try:
                 await browser.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("browser_use_linkedin_close_failed", error=str(exc))
 
     # Validate URLs against actual rendered page content.
     validated_urls: list[str] = []
