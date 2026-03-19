@@ -52,10 +52,15 @@ def test_extract_native_linkedin_links_from_html():
     html = """
     <a href="/posts/some-user_activity-123">post</a>
     <a href="https://www.linkedin.com/in/jane-doe-12345">profile</a>
+    <script>{"entityUrn":"urn:li:activity:7328837727785578497"}</script>
+    <script>{"encoded":"urn%3Ali%3Aactivity%3A7328837727785578498"}</script>
+    <script>{"unicodeEscaped":"urn\\\\u003Ali\\\\u003Aactivity\\\\u003A7328837727785578499"}</script>
     """
     links = ld._extract_native_linkedin_links(html)
     assert "https://www.linkedin.com/posts/some-user_activity-123" in links
     assert "https://www.linkedin.com/in/jane-doe-12345" in links
+    assert "https://www.linkedin.com/feed/update/urn:li:activity:7328837727785578497" in links
+    assert "https://www.linkedin.com/feed/update/urn:li:activity:7328837727785578498" in links
 
 
 def test_build_linkedin_search_variants_removes_duplicate_site_operators():
@@ -76,3 +81,24 @@ def test_normalize_linkedin_href_handles_relative_and_absolute():
     assert ld._normalize_linkedin_href("/posts/test-1") == "https://www.linkedin.com/posts/test-1"
     assert ld._normalize_linkedin_href("https://www.linkedin.com/in/user-1") == "https://www.linkedin.com/in/user-1"
     assert ld._normalize_linkedin_href("https://example.com/not-linkedin") == ""
+
+
+def test_extract_activity_id_and_weight():
+    url = "https://www.linkedin.com/feed/update/urn:li:activity:7328837727785578497/"
+    aid = ld._extract_activity_id(url)
+    assert aid == 7328837727785578497
+    assert ld._activity_recency_weight(url) > 0
+
+
+def test_build_linkedin_post_search_variants_posts_only():
+    variants = ld._build_linkedin_post_search_variants('site:linkedin.com/posts "phd in ai"')
+    assert variants
+    assert all("site:linkedin.com/posts" in v or "site:linkedin.com/feed/update" in v for v in variants)
+
+
+def test_cookie_header_parsing_helpers():
+    header = "li_at=abc123; JSESSIONID=xyz; liap=true"
+    assert ld._extract_li_at_from_cookie_header(header) == "abc123"
+    pairs = ld._parse_cookie_header(header)
+    assert ("li_at", "abc123") in pairs
+    assert ("JSESSIONID", "xyz") in pairs

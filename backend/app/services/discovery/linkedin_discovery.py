@@ -13,6 +13,7 @@ import hashlib
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from math import log10
 from typing import Any
 from urllib.parse import quote_plus, unquote
 
@@ -119,6 +120,19 @@ def _build_linkedin_search_variants(query: str) -> list[str]:
     ]
 
 
+def _build_linkedin_post_search_variants(query: str) -> list[str]:
+    q = (query or "").strip()
+    if not q:
+        return []
+    q = re.sub(r"(?i)\bsite:linkedin\.com(?:/[a-z]+)?\b", "", q)
+    q = " ".join(q.split())
+    return [
+        f'site:linkedin.com/posts {q}',
+        f'site:linkedin.com/feed/update {q}',
+        f'{q} site:linkedin.com/posts',
+    ]
+
+
 def _linkedin_native_search_url(query: str) -> str:
     q = quote_plus((query or "").strip())
     return (
@@ -157,11 +171,33 @@ def _extract_native_linkedin_links(html: str) -> list[str]:
     for rel in rel_pattern.findall(html):
         links.append(f"https://www.linkedin.com{unquote(rel)}")
 
+    # Embedded JSON often contains activity URNs even when anchors are sparse.
+    for aid in re.findall(r"urn:li:activity:(\d{10,})", html):
+        links.append(f"https://www.linkedin.com/feed/update/urn:li:activity:{aid}")
+    for aid in re.findall(r"urn%3Ali%3Aactivity%3A(\d{10,})", html):
+        links.append(f"https://www.linkedin.com/feed/update/urn:li:activity:{aid}")
+    for aid in re.findall(r"urn(?:\\\\u003a|\\u003a)li(?:\\\\u003a|\\u003a)activity(?:\\\\u003a|\\u003a)(\d{10,})", html):
+        links.append(f"https://www.linkedin.com/feed/update/urn:li:activity:{aid}")
+
+    # Escaped JSON URL forms.
+    for raw in re.findall(
+        r'https:\\/\\/www\.linkedin\.com\\/(?:posts\\/[^"\\< ]+|feed\\/update\\/urn:li:activity:\\d{10,})',
+        html,
+    ):
+        links.append(raw.replace("\\/", "/"))
+
+    # Unescaped JSON URL forms.
+    for raw in re.findall(
+        r'https://www\.linkedin\.com/(?:posts/[^"\\< ]+|feed/update/urn:li:activity:\d{10,})',
+        html,
+    ):
+        links.append(raw)
+
     # order-preserving dedupe
     seen: set[str] = set()
     out: list[str] = []
     for u in links:
-        clean = u.split("?", 1)[0]
+        clean = u.split("?", 1)[0].rstrip("/")
         if clean in seen:
             continue
         seen.add(clean)
@@ -184,16 +220,40 @@ def _normalize_linkedin_href(href: str) -> str:
     return h
 
 
+def _extract_activity_id(url: str) -> int | None:
+    u = (url or "").lower()
+    m = re.search(r"activity[:\-](\d{10,})", u)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except Exception:
+        return None
+
+
+def _activity_recency_weight(url: str) -> float:
+    """
+    Use LinkedIn activity id magnitude as a lightweight freshness proxy.
+    This is not an absolute timestamp, but newer activities generally have larger ids.
+    """
+    aid = _extract_activity_id(url)
+    if not aid or aid <= 0:
+        return 0.0
+    return min(0.2, max(0.0, (log10(float(aid)) - 16.0) * 0.08))
+
+
 async def _discover_linkedin_links_browser(
     *,
     queries: list[str],
     li_at_cookie: str,
+    cookie_header: str | None,
     max_links_per_query: int,
-) -> dict[str, list[str]]:
+) -> tuple[dict[str, list[str]], dict[str, Any]]:
     if async_playwright is None or not li_at_cookie:
-        return {}
+        return {}, {"navigation_errors": 0, "sample_errors": []}
 
     out: dict[str, list[str]] = {}
+    meta: dict[str, Any] = {"navigation_errors": 0, "sample_errors": []}
     headless = bool(getattr(settings, "LINKEDIN_BROWSER_HEADLESS", True))
     timeout_ms = int(getattr(settings, "LINKEDIN_BROWSER_TIMEOUT_MS", 30000) or 30000)
     scroll_steps = max(1, int(getattr(settings, "LINKEDIN_BROWSER_SCROLL_STEPS", 4) or 4))
@@ -207,18 +267,23 @@ async def _discover_linkedin_links_browser(
                 "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
             ),
         )
-        await context.add_cookies(
-            [
-                {
-                    "name": "li_at",
-                    "value": li_at_cookie,
-                    "domain": ".linkedin.com",
-                    "path": "/",
-                    "httpOnly": True,
-                    "secure": True,
-                }
-            ]
-        )
+        parsed_cookies = _parse_cookie_header(cookie_header)
+        if not parsed_cookies and li_at_cookie:
+            parsed_cookies = [("li_at", li_at_cookie)]
+        if parsed_cookies:
+            await context.add_cookies(
+                [
+                    {
+                        "name": name,
+                        "value": value,
+                        "domain": ".linkedin.com",
+                        "path": "/",
+                        "httpOnly": True,
+                        "secure": True,
+                    }
+                    for name, value in parsed_cookies
+                ]
+            )
         page = await context.new_page()
         try:
             for raw_query in queries or []:
@@ -237,14 +302,23 @@ async def _discover_linkedin_links_browser(
                             "a",
                             "els => els.map(e => e.getAttribute('href') || '').filter(Boolean)",
                         )
+                        html = await page.content()
                     except Exception:
+                        meta["navigation_errors"] = int(meta.get("navigation_errors") or 0) + 1
+                        if len(meta["sample_errors"]) < 3:
+                            meta["sample_errors"].append(f"{target_url}:navigation_failed")
                         hrefs = []
+                        html = ""
                     for h in hrefs:
                         url = _normalize_linkedin_href(str(h))
                         if not url:
                             continue
                         if url not in links:
                             links.append(url)
+                    if html:
+                        for url in _extract_native_linkedin_links(html):
+                            if url not in links:
+                                links.append(url)
                     if len(links) >= max_links_per_query:
                         break
                 out[query] = links[:max_links_per_query]
@@ -252,7 +326,7 @@ async def _discover_linkedin_links_browser(
             await page.close()
             await context.close()
             await browser.close()
-    return out
+    return out, meta
 
 
 def _recency_weight(url: str, query: str | None = None) -> float:
@@ -306,6 +380,32 @@ def _session_hash_cookie(li_at_cookie: str | None) -> str | None:
     if not li_at_cookie:
         return None
     return hashlib.sha256(li_at_cookie.encode("utf-8")).hexdigest()[:12]
+
+
+def _extract_li_at_from_cookie_header(cookie_header: str | None) -> str | None:
+    if not cookie_header:
+        return None
+    m = re.search(r"(?:^|;\s*)li_at=([^;]+)", cookie_header)
+    if not m:
+        return None
+    return (m.group(1) or "").strip() or None
+
+
+def _parse_cookie_header(cookie_header: str | None) -> list[tuple[str, str]]:
+    if not cookie_header:
+        return []
+    pairs: list[tuple[str, str]] = []
+    for part in cookie_header.split(";"):
+        chunk = part.strip()
+        if "=" not in chunk:
+            continue
+        name, value = chunk.split("=", 1)
+        n = (name or "").strip()
+        v = (value or "").strip()
+        if not n:
+            continue
+        pairs.append((n, v))
+    return pairs
 
 
 def get_or_create_linkedin_session(
@@ -365,9 +465,19 @@ async def discover_linkedin_candidates(
     li_at_cookie: str | None = None,
     max_links_per_query: int | None = None,
     use_authenticated_browser: bool = True,
+    posts_only: bool = False,
+    latest_first: bool = True,
+    cookie_header: str | None = None,
 ) -> dict[str, Any]:
     _purge_expired_sessions()
-    li_at_effective = li_at_cookie or (getattr(settings, "LINKEDIN_LI_AT", None) or "").strip() or None
+    configured_cookie_header = (getattr(settings, "LINKEDIN_COOKIE_HEADER", None) or "").strip() or None
+    cookie_header_effective = (cookie_header or configured_cookie_header or "").strip() or None
+    li_at_effective = (
+        li_at_cookie
+        or _extract_li_at_from_cookie_header(cookie_header_effective)
+        or (getattr(settings, "LINKEDIN_LI_AT", None) or "").strip()
+        or None
+    )
     session_meta = get_or_create_linkedin_session(
         session_id=session_id,
         li_at_cookie=li_at_effective,
@@ -376,7 +486,7 @@ async def discover_linkedin_candidates(
     n = max_links_per_query
     if n is None:
         n = int(getattr(settings, "LINKEDIN_MAX_RESULTS_PER_QUERY", 10) or 10)
-    n = max(1, min(int(n), 20))
+    n = max(1, min(int(n), 100))
 
     headers = {
         "User-Agent": (
@@ -385,32 +495,44 @@ async def discover_linkedin_candidates(
         ),
         "Accept-Language": "en-US,en;q=0.9",
     }
-    if li_at_effective:
+    if cookie_header_effective:
+        headers["Cookie"] = cookie_header_effective
+    elif li_at_effective:
         headers["Cookie"] = f"li_at={li_at_effective}"
 
     by_query: dict[str, list[dict[str, Any]]] = {}
     dedup: dict[str, dict[str, Any]] = {}
     years = _year_hints()
     browser_links_by_query: dict[str, list[str]] = {}
+    auth_attempted = bool(li_at_effective and use_authenticated_browser)
+    auth_links_found = False
+    auth_signin_wall_seen = False
+    auth_browser_error: str | None = None
+    auth_browser_meta: dict[str, Any] = {"navigation_errors": 0, "sample_errors": []}
 
     async def _search_with_fallback(search_query: str) -> list[str]:
         links, _provider = await collect_links_for_query(
             search_query,
             max_links=n,
             headers=headers,
-            # Prefer stable providers first to reduce Google 429 pressure for LinkedIn discovery.
-            providers=["bing", "bing_rss", "google", "duckduckgo"],
+            providers=["brave", "bing", "bing_rss", "google", "duckduckgo"],
         )
         return links
 
     if li_at_effective and use_authenticated_browser:
         try:
-            browser_links_by_query = await _discover_linkedin_links_browser(
+            browser_links_by_query, auth_browser_meta = await _discover_linkedin_links_browser(
                 queries=queries,
                 li_at_cookie=li_at_effective,
+                cookie_header=cookie_header_effective,
                 max_links_per_query=n,
             )
+            if any(browser_links_by_query.get(q) for q in browser_links_by_query):
+                auth_links_found = True
+            elif int(auth_browser_meta.get("navigation_errors") or 0) > 0:
+                auth_browser_error = "browser_navigation_failed"
         except Exception:
+            auth_browser_error = "browser_discovery_failed"
             browser_links_by_query = {}
 
     async with httpx.AsyncClient(timeout=8.0, headers=headers, follow_redirects=True) as client:
@@ -427,17 +549,25 @@ async def discover_linkedin_candidates(
                 try:
                     li_resp = await client.get(_linkedin_native_search_url(query))
                     li_html = li_resp.text if li_resp.status_code == 200 else ""
+                    if li_html and "Sign in" in li_html:
+                        auth_signin_wall_seen = True
                     if li_html and "Sign in" not in li_html:
                         for link in _extract_native_linkedin_links(li_html):
                             if link not in links:
                                 links.append(link)
+                                auth_links_found = True
                 except Exception:
                     pass
 
             # 2) Lightweight external fallback chain for robustness.
             needed = max(3, n // 2)
             if len(links) < needed:
-                for sq in _build_linkedin_search_variants(query):
+                variants = (
+                    _build_linkedin_post_search_variants(query)
+                    if posts_only
+                    else _build_linkedin_search_variants(query)
+                )
+                for sq in variants:
                     variant_links = await _search_with_fallback(sq)
                     for link in variant_links:
                         if link not in links:
@@ -452,8 +582,11 @@ async def discover_linkedin_candidates(
                 kind = _classify_linkedin_url(link)
                 if kind == "other":
                     continue
+                if posts_only and kind != "post":
+                    continue
                 recency = _recency_weight(link, query)
                 relevance = _relevance_weight(link, query)
+                activity_recency = _activity_recency_weight(link)
                 year_bonus = 0.0
                 lower_link = link.lower()
                 for i, y in enumerate(years):
@@ -466,7 +599,15 @@ async def discover_linkedin_candidates(
                     "school": 0.12,
                     "jobs": 0.08,
                 }.get(kind, 0.0)
-                score = round((1.0 / rank) * 0.35 + recency * 0.35 + relevance + kind_bonus + year_bonus, 6)
+                score = round(
+                    (1.0 / rank) * 0.35
+                    + recency * 0.35
+                    + relevance
+                    + kind_bonus
+                    + year_bonus
+                    + activity_recency,
+                    6,
+                )
                 item = {
                     "url": link,
                     "query": query,
@@ -474,6 +615,8 @@ async def discover_linkedin_candidates(
                     "rank": rank,
                     "recency_weight": recency,
                     "relevance_weight": relevance,
+                    "activity_recency_weight": round(activity_recency, 6),
+                    "activity_id": _extract_activity_id(link),
                     "score": score,
                 }
                 items.append(item)
@@ -484,9 +627,28 @@ async def discover_linkedin_candidates(
                     break
             by_query[query] = items
 
-    ranked = sorted(dedup.values(), key=lambda x: x["score"], reverse=True)
+    if latest_first:
+        ranked = sorted(
+            dedup.values(),
+            key=lambda x: (x["score"], int(x.get("activity_id") or 0)),
+            reverse=True,
+        )
+    else:
+        ranked = sorted(dedup.values(), key=lambda x: x["score"], reverse=True)
     return {
         "session": session_meta,
+        "posts_only": bool(posts_only),
+        "latest_first": bool(latest_first),
+        "auth_diagnostics": {
+            "attempted": auth_attempted,
+            "links_found_from_auth": auth_links_found,
+            "signin_wall_detected": auth_signin_wall_seen,
+            "browser_total_links": sum(len(v or []) for v in browser_links_by_query.values()),
+            "browser_queries_with_links": len([1 for v in browser_links_by_query.values() if v]),
+            "browser_error": auth_browser_error,
+            "browser_navigation_errors": int(auth_browser_meta.get("navigation_errors") or 0),
+            "browser_sample_errors": list(auth_browser_meta.get("sample_errors") or []),
+        },
         "queries_count": len(by_query),
         "per_query": by_query,
         "ranked_results": ranked,

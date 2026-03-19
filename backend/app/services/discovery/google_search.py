@@ -3,6 +3,7 @@ Google search ingestion (MVP): query -> links collection -> dedupe -> scoring.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote_plus, unquote, urlparse
@@ -20,6 +21,9 @@ GOOGLE_UA = (
 SEARCH_REQUEST_TIMEOUT_S = 8.0
 _PROXY_ROTATE_INDEX = 0
 _GOOGLE_COOLDOWN_UNTIL: datetime | None = None
+_BRAVE_COOLDOWN_UNTIL: datetime | None = None
+_BRAVE_LAST_REQUEST: float = 0.0
+_BRAVE_MIN_INTERVAL_S = 1.5
 
 
 def _utcnow() -> datetime:
@@ -31,10 +35,10 @@ def _split_csv(value: str | None) -> list[str]:
 
 
 def _provider_order() -> list[str]:
-    configured = _split_csv(getattr(settings, "SEARCH_PROVIDER_ORDER", "bing,bing_rss,google,duckduckgo"))
-    allowed = {"google", "bing", "bing_rss", "duckduckgo"}
+    configured = _split_csv(getattr(settings, "SEARCH_PROVIDER_ORDER", "brave,bing,bing_rss,google,duckduckgo"))
+    allowed = {"google", "bing", "bing_rss", "duckduckgo", "brave"}
     order = [p for p in configured if p in allowed]
-    return order or ["bing", "bing_rss", "google", "duckduckgo"]
+    return order or ["brave", "bing", "bing_rss", "google", "duckduckgo"]
 
 
 def _proxy_pool() -> list[str]:
@@ -59,6 +63,26 @@ def _mark_google_cooldown() -> None:
     global _GOOGLE_COOLDOWN_UNTIL
     seconds = max(10, int(getattr(settings, "SEARCH_GOOGLE_COOLDOWN_SECONDS", 300) or 300))
     _GOOGLE_COOLDOWN_UNTIL = _utcnow() + timedelta(seconds=seconds)
+
+
+def _brave_on_cooldown() -> bool:
+    return _BRAVE_COOLDOWN_UNTIL is not None and _BRAVE_COOLDOWN_UNTIL > _utcnow()
+
+
+def _mark_brave_cooldown() -> None:
+    global _BRAVE_COOLDOWN_UNTIL
+    _BRAVE_COOLDOWN_UNTIL = _utcnow() + timedelta(seconds=60)
+
+
+async def _brave_throttle() -> None:
+    """Enforce minimum interval between Brave requests to avoid 429s."""
+    import time
+    global _BRAVE_LAST_REQUEST
+    now = time.monotonic()
+    elapsed = now - _BRAVE_LAST_REQUEST
+    if elapsed < _BRAVE_MIN_INTERVAL_S:
+        await asyncio.sleep(_BRAVE_MIN_INTERVAL_S - elapsed)
+    _BRAVE_LAST_REQUEST = time.monotonic()
 
 
 def build_google_search_url(query: str, num: int = 10) -> str:
@@ -123,6 +147,8 @@ def extract_http_links_from_html(html: str) -> list[str]:
                 "www.bing.com",
                 "duckduckgo.com",
                 "www.duckduckgo.com",
+                "brave.com",
+                "search.brave.com",
             )
         ):
             continue
@@ -154,6 +180,12 @@ def extract_http_links_from_html(html: str) -> list[str]:
 def build_duckduckgo_search_url(query: str) -> str:
     q = quote_plus((query or "").strip())
     return f"https://duckduckgo.com/html/?q={q}"
+
+
+def build_brave_search_url(query: str, num: int = 20) -> str:
+    q = quote_plus((query or "").strip())
+    n = max(1, min(int(num), 50))
+    return f"https://search.brave.com/search?q={q}&count={n}&source=web"
 
 
 def build_bing_search_url(query: str, num: int = 10) -> str:
@@ -211,23 +243,39 @@ async def collect_links_for_query(
         "Accept-Language": "en-US,en;q=0.9",
     }
 
+    _brave_hdrs = dict(hdrs)
+    _brave_hdrs["Accept-Encoding"] = "gzip, deflate"
+
     for provider in provider_list:
         if provider == "google":
             if not bool(getattr(settings, "SEARCH_ENABLE_GOOGLE", True)):
                 continue
             if _google_on_cooldown():
                 continue
+        if provider == "brave" and _brave_on_cooldown():
+            continue
         proxy = _next_proxy()
         try:
             async with httpx.AsyncClient(
                 timeout=SEARCH_REQUEST_TIMEOUT_S,
-                headers=hdrs,
+                headers=_brave_hdrs if provider == "brave" else hdrs,
                 follow_redirects=True,
                 proxy=proxy,
             ) as client:
+                if provider == "brave":
+                    await _brave_throttle()
+                    resp = await client.get(build_brave_search_url(query, num=n))
+                    links: list[str] = []
+                    if resp.status_code == 200:
+                        links = extract_http_links_from_html(resp.text)[:n]
+                    if resp.status_code == 429:
+                        _mark_brave_cooldown()
+                    if links:
+                        return links, "brave"
+                    continue
                 if provider == "google":
                     resp = await client.get(build_google_search_url(query, num=n))
-                    links: list[str] = []
+                    links = []
                     if resp.status_code == 200:
                         links = extract_google_result_links_from_html(resp.text)[:n]
                     if resp.status_code == 429 or "google.com/sorry" in str(resp.url):

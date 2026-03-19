@@ -48,11 +48,12 @@ class Settings(BaseSettings):
     LINKEDIN_SESSION_TTL_MINUTES: int = 120
     LINKEDIN_MAX_RESULTS_PER_QUERY: int = 10
     LINKEDIN_LI_AT: str = ""
+    LINKEDIN_COOKIE_HEADER: str = ""
     LINKEDIN_BROWSER_HEADLESS: bool = True
     LINKEDIN_BROWSER_TIMEOUT_MS: int = 30000
     LINKEDIN_BROWSER_SCROLL_STEPS: int = 4
     LINKEDIN_BROWSER_SCROLL_WAIT_MS: int = 1200
-    SEARCH_PROVIDER_ORDER: str = "bing,bing_rss,duckduckgo"
+    SEARCH_PROVIDER_ORDER: str = "brave,bing,bing_rss,duckduckgo"
     SEARCH_PROXY_URLS: str = ""
     SEARCH_ENABLE_GOOGLE: bool = False
     SEARCH_GOOGLE_COOLDOWN_SECONDS: int = 300
