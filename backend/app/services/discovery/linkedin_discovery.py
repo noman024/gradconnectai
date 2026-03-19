@@ -20,9 +20,13 @@ from urllib.parse import quote_plus, unquote
 import httpx
 
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.services.discovery.google_search import (
     collect_links_for_query,
 )
+from app.services.discovery.browser_use_search import _browser_use_search_linkedin
+
+logger = get_logger("discovery.linkedin")
 
 try:
     from playwright.async_api import async_playwright  # type: ignore
@@ -469,6 +473,7 @@ async def discover_linkedin_candidates(
     latest_first: bool = True,
     cookie_header: str | None = None,
 ) -> dict[str, Any]:
+    logger.info("linkedin_discover_start", queries=queries[:3], posts_only=posts_only, auth_browser=use_authenticated_browser)
     _purge_expired_sessions()
     configured_cookie_header = (getattr(settings, "LINKEDIN_COOKIE_HEADER", None) or "").strip() or None
     cookie_header_effective = (cookie_header or configured_cookie_header or "").strip() or None
@@ -575,6 +580,18 @@ async def discover_linkedin_candidates(
                     if len(links) >= n:
                         break
 
+            # 3) browser-use agent fallback when HTTP search is insufficient.
+            if len(links) < needed:
+                try:
+                    bu_result = await _browser_use_search_linkedin(
+                        query, max_results=n, time_filter="month",
+                    )
+                    for link in bu_result.get("urls") or []:
+                        if link not in links:
+                            links.append(link)
+                except Exception:
+                    pass
+
             rank = 1
             for link in links:
                 if not _is_valid_linkedin_candidate(link):
@@ -635,6 +652,7 @@ async def discover_linkedin_candidates(
         )
     else:
         ranked = sorted(dedup.values(), key=lambda x: x["score"], reverse=True)
+    logger.info("linkedin_discover_done", total_ranked=len(ranked), queries_count=len(by_query))
     return {
         "session": session_meta,
         "posts_only": bool(posts_only),

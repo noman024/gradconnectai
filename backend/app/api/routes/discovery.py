@@ -3,12 +3,14 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Any
 
+from app.core.logging import get_logger
 from app.services.discovery.pipeline import run_university_lab_pipeline
 from app.services.discovery.query_planner import build_discovery_query_plan
 from app.services.discovery.harvester import run_automated_search_harvester
 from app.services.discovery.google_search import google_search_collect_links
 from app.services.discovery.google_browser_search import google_search_collect_links_browser
 from app.services.discovery.linkedin_discovery import discover_linkedin_candidates
+from app.services.discovery.browser_use_search import browser_use_collect_linkedin_posts, browser_use_collect_links
 from app.services.store import (
     professor_set,
     professor_get_by_name_university,
@@ -25,6 +27,7 @@ from app.core.config import settings
 
 import hashlib
 
+logger = get_logger("discovery.api")
 router = APIRouter()
 
 
@@ -60,6 +63,12 @@ class LinkedInDiscoveryRequest(BaseModel):
     use_authenticated_browser: bool = True
     posts_only: bool = True
     latest_first: bool = True
+
+
+class BrowserUseSearchRequest(BaseModel):
+    queries: list[str]
+    max_links_per_query: int = 30
+    time_filter: str = "month"
 
 
 class DiscoveryHarvestRequest(BaseModel):
@@ -222,10 +231,13 @@ async def discovery_google_search(body: GoogleSearchIngestionRequest):
     """
     Collect and score top links from Google search queries.
     """
-    return await google_search_collect_links(
+    logger.info("google_search_request", queries=body.queries, max_links=body.max_links_per_query)
+    result = await google_search_collect_links(
         body.queries,
         max_links_per_query=body.max_links_per_query,
     )
+    logger.info("google_search_done", total_deduped=result.get("total_deduped", 0))
+    return result
 
 
 @router.post("/google-search-browser")
@@ -233,10 +245,13 @@ async def discovery_google_search_browser(body: GoogleBrowserSearchIngestionRequ
     """
     Collect and score top links from Google search using a real browser session.
     """
-    return await google_search_collect_links_browser(
+    logger.info("google_browser_search_request", queries=body.queries, max_links=body.max_links_per_query)
+    result = await google_search_collect_links_browser(
         body.queries,
         max_links_per_query=body.max_links_per_query,
     )
+    logger.info("google_browser_search_done", total_deduped=result.get("total_deduped", 0), fallback=result.get("fallback_used"))
+    return result
 
 
 @router.post("/linkedin-discovery")
@@ -244,7 +259,8 @@ async def discovery_linkedin(body: LinkedInDiscoveryRequest):
     """
     Discover LinkedIn profile/post URLs with session tracking and recency weighting.
     """
-    return await discover_linkedin_candidates(
+    logger.info("linkedin_discovery_request", queries=body.queries, posts_only=body.posts_only, auth_browser=body.use_authenticated_browser)
+    result = await discover_linkedin_candidates(
         queries=body.queries,
         session_id=body.session_id,
         li_at_cookie=body.li_at_cookie,
@@ -254,6 +270,46 @@ async def discovery_linkedin(body: LinkedInDiscoveryRequest):
         posts_only=body.posts_only,
         latest_first=body.latest_first,
     )
+    logger.info("linkedin_discovery_done", total_ranked=result.get("total_ranked", 0))
+    return result
+
+
+@router.post("/browser-use-search")
+async def discovery_browser_use_search(body: BrowserUseSearchRequest):
+    """
+    AI-driven browser search using browser-use + Ollama.
+    Mimics human search behaviour to find recent LinkedIn posts.
+    """
+    logger.info("browser_use_linkedin_request", queries=body.queries, time_filter=body.time_filter)
+    result = await browser_use_collect_linkedin_posts(
+        body.queries,
+        max_links_per_query=body.max_links_per_query,
+        time_filter=body.time_filter,
+    )
+    logger.info("browser_use_linkedin_done", total=result.get("total", 0), errors=result.get("errors"))
+    return result
+
+
+class BrowserUseGeneralSearchRequest(BaseModel):
+    queries: list[str]
+    max_links_per_query: int = 20
+    time_filter: str = "month"
+
+
+@router.post("/browser-use-general")
+async def discovery_browser_use_general(body: BrowserUseGeneralSearchRequest):
+    """
+    AI-driven general web search using browser-use + Ollama + DuckDuckGo.
+    Returns all result links (not just LinkedIn).
+    """
+    logger.info("browser_use_general_request", queries=body.queries, time_filter=body.time_filter)
+    result = await browser_use_collect_links(
+        body.queries,
+        max_links_per_query=body.max_links_per_query,
+        time_filter=body.time_filter,
+    )
+    logger.info("browser_use_general_done", total_deduped=result.get("total_deduped", 0), errors=result.get("errors"))
+    return result
 
 
 @router.post("/harvest")
@@ -278,6 +334,7 @@ async def discovery_harvest(body: DiscoveryHarvestRequest):
         tokens = [w for w in body.cv_text.replace("\n", " ").split(" ") if len(w) > 4]
         topics = tokens[:20]
 
+    logger.info("harvest_request", topics=topics[:5], use_browser=body.use_browser_google, top_k=body.top_k)
     harvest = await run_automated_search_harvester(
         research_topics=topics,
         preferences=prefs,
@@ -289,6 +346,7 @@ async def discovery_harvest(body: DiscoveryHarvestRequest):
         linkedin_session_id=body.linkedin_session_id,
         linkedin_li_at_cookie=body.linkedin_li_at_cookie,
     )
+    logger.info("harvest_done", total_seed_urls=harvest.get("total_seed_urls", 0), sources=harvest.get("sources"))
     return {
         "student_id": body.student_id,
         **harvest,

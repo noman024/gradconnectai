@@ -1,6 +1,7 @@
 """
 GradConnectAI API Gateway — FastAPI application.
 """
+import os
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
@@ -21,19 +22,16 @@ from app.services.llm_client import extract_topics_from_cv
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
-    # Warm up heavy resources (embedding model, LLM, etc.)
-    preload_embedding_model()
-    try:
-        # Fire a small LLM warmup call so the first user request doesn't pay model load cost.
-        extract_topics_from_cv(
-            cv_text="Short CV snippet about machine learning and NLP.",
-            preference_fields=["machine learning", "NLP"],
-        )
-    except Exception:
-        # LLM warmup failures should not prevent app startup.
-        pass
+    if os.getenv("SKIP_WARMUP", "").lower() not in ("1", "true", "yes"):
+        preload_embedding_model()
+        try:
+            extract_topics_from_cv(
+                cv_text="Short CV snippet about machine learning and NLP.",
+                preference_fields=["machine learning", "NLP"],
+            )
+        except Exception:
+            pass
     yield
-    # Shutdown: close DB pools, etc.
 
 
 app = FastAPI(

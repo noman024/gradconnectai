@@ -35,9 +35,13 @@ def test_run_automated_search_harvester_with_stubbed_sources(monkeypatch):
             "ranked_results": [{"url": "https://www.linkedin.com/in/jane", "score": 0.8, "query": "q2", "kind": "profile"}],
         }
 
+    async def _fake_browser_use(*args, **kwargs):
+        return {"total": 0, "ranked_results": [], "errors": None}
+
     monkeypatch.setattr(harvester, "google_search_collect_links", _fake_google)
     monkeypatch.setattr(harvester, "google_search_collect_links_browser", _fake_google_browser)
     monkeypatch.setattr(harvester, "discover_linkedin_candidates", _fake_linkedin)
+    monkeypatch.setattr(harvester, "browser_use_collect_linkedin_posts", _fake_browser_use)
 
     out = asyncio.run(
         harvester.run_automated_search_harvester(
@@ -110,9 +114,13 @@ def test_harvester_skips_http_when_browser_already_fallbacked(monkeypatch):
             "ranked_results": [],
         }
 
+    async def _fake_browser_use(*args, **kwargs):
+        return {"total": 0, "ranked_results": [], "errors": None}
+
     monkeypatch.setattr(harvester, "google_search_collect_links", _should_not_be_called)
     monkeypatch.setattr(harvester, "google_search_collect_links_browser", _fake_google_browser)
     monkeypatch.setattr(harvester, "discover_linkedin_candidates", _fake_linkedin)
+    monkeypatch.setattr(harvester, "browser_use_collect_linkedin_posts", _fake_browser_use)
 
     out = asyncio.run(
         harvester.run_automated_search_harvester(

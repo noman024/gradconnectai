@@ -60,6 +60,9 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    env:
+      SKIP_WARMUP: "true"
+      OLLAMA_BASE_URL: ""
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -77,9 +80,15 @@ jobs:
       - name: Start API for smoke check
         run: |
           nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8009 >/tmp/gradconnectai-api.log 2>&1 &
-          sleep 5
+          for i in $(seq 1 30); do
+            if curl -s http://127.0.0.1:8009/api/v1/health >/dev/null 2>&1; then
+              echo "Server ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
 
       - name: Health endpoint smoke test
         run: |
-          curl -fsS http://127.0.0.1:8009/api/v1/health
-          curl -fsS http://127.0.0.1:8009/api/v1/health/ready
+          curl -fsS http://127.0.0.1:8009/api/v1/health || { echo "--- Server log ---"; cat /tmp/gradconnectai-api.log; exit 1; }
+          curl -fsS http://127.0.0.1:8009/api/v1/health/ready || { echo "--- Server log ---"; cat /tmp/gradconnectai-api.log; exit 1; }

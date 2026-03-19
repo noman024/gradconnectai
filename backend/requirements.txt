@@ -23,6 +23,9 @@ crawl4ai>=0.7.0,<0.7.5
 # AI / embeddings
 sentence-transformers>=2.2.2
 
+# Browser-use: AI-driven browser automation via LLM
+browser-use>=0.12.0
+
 # Rate limiting
 slowapi>=0.1.9
 

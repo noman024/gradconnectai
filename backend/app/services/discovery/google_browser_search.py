@@ -1,24 +1,23 @@
 """
-Browser-based Google search ingestion using Playwright.
+Browser-based search ingestion using browser-use AI agent.
+
+Replaces the previous raw-Playwright approach with browser-use which
+provides built-in anti-detection (stealth flags, ad-blocker, cookie-banner
+dismisser) and uses DuckDuckGo (fewer CAPTCHAs than Google/Brave from
+VPN IPs).
+
+Falls back to the HTTP search collector if browser-use is unavailable.
 """
 from __future__ import annotations
 
 from typing import Any
 from urllib.parse import urlparse
 
-from app.core.config import settings
-from app.services.discovery.google_search import (
-    build_google_search_url,
-    extract_google_result_links_from_html,
-    extract_http_links_from_html,
-    build_duckduckgo_search_url,
-    google_search_collect_links,
-)
+from app.core.logging import get_logger
+from app.services.discovery.google_search import google_search_collect_links
+from app.services.discovery.browser_use_search import browser_use_collect_links, _ensure_browser_use
 
-try:
-    from playwright.async_api import async_playwright  # type: ignore
-except Exception:  # pragma: no cover - optional/runtime dependency
-    async_playwright = None  # type: ignore
+logger = get_logger("discovery.google_browser_search")
 
 
 def _score_google_url(url: str, query: str, rank: int) -> float:
@@ -31,7 +30,6 @@ def _score_google_url(url: str, query: str, rank: int) -> float:
         score += 0.2
     if "linkedin.com" in u:
         score += 0.1
-    # Lightweight lexical overlap boost.
     for token in [t for t in q.replace('"', " ").split() if len(t) > 2][:8]:
         if token in u:
             score += 0.03
@@ -43,137 +41,46 @@ async def google_search_collect_links_browser(
     *,
     max_links_per_query: int = 10,
 ) -> dict[str, Any]:
+    """
+    Collect and score web links using browser-use + DuckDuckGo.
+    Falls back to HTTP search if browser-use is not available.
+    """
     n = max(1, min(int(max_links_per_query), 20))
-    if not bool(getattr(settings, "SEARCH_ENABLE_GOOGLE", True)):
+
+    if not _ensure_browser_use():
+        logger.info("browser_use_unavailable_fallback_http", queries_count=len(queries or []))
+        fallback = await google_search_collect_links(queries, max_links_per_query=n)
         return {
-            "engine": "playwright",
+            "engine": "browser_use",
             "available": False,
-            "error": "google_provider_disabled",
-            "queries_count": len([q for q in queries or [] if (q or "").strip()]),
-            "per_query": {},
-            "deduped_results": [],
-            "total_deduped": 0,
-        }
-    if async_playwright is None:
-        return {
-            "engine": "playwright",
-            "available": False,
-            "error": "playwright_not_installed",
-            "queries_count": len([q for q in queries or [] if (q or "").strip()]),
-            "per_query": {},
-            "deduped_results": [],
-            "total_deduped": 0,
+            "fallback_used": True,
+            "error": "browser_use_not_installed",
+            "queries_count": fallback.get("queries_count"),
+            "per_query": fallback.get("per_query"),
+            "deduped_results": fallback.get("deduped_results"),
+            "total_deduped": fallback.get("total_deduped"),
         }
 
-    by_query: dict[str, list[dict[str, Any]]] = {}
-    dedup: dict[str, dict[str, Any]] = {}
-
-    async with async_playwright() as p:
-        try:
-            browser = await p.chromium.launch(headless=bool(settings.GOOGLE_BROWSER_HEADLESS))
-        except Exception as exc:
-            # Headed mode may fail in server environments without DISPLAY.
-            fallback = await google_search_collect_links(
-                queries,
-                max_links_per_query=n,
-            )
-            return {
-                "engine": "playwright",
-                "available": False,
-                "error": f"playwright_launch_failed:{type(exc).__name__}",
-                "queries_count": fallback.get("queries_count"),
-                "per_query": fallback.get("per_query"),
-                "deduped_results": fallback.get("deduped_results"),
-                "total_deduped": fallback.get("total_deduped"),
-            }
-        context = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-            ),
-        )
-        try:
-            for raw_q in queries or []:
-                query = (raw_q or "").strip()
-                if not query:
-                    continue
-                page = await context.new_page()
-                items: list[dict[str, Any]] = []
-                try:
-                    url = build_google_search_url(query, n)
-                    await page.goto(
-                        url,
-                        wait_until="domcontentloaded",
-                        timeout=int(settings.GOOGLE_BROWSER_TIMEOUT_MS),
-                    )
-                    await page.wait_for_timeout(int(settings.GOOGLE_BROWSER_WAIT_MS))
-                    html = await page.content()
-                    links = extract_google_result_links_from_html(html)[:n]
-                    if not links:
-                        # Secondary browser extractor: read anchors directly from DOM.
-                        hrefs = await page.eval_on_selector_all(
-                            "a",
-                            "els => els.map(e => e.getAttribute('href') || '').filter(Boolean)",
-                        )
-                        direct = []
-                        for h in hrefs:
-                            hs = str(h).strip()
-                            if hs.startswith("/url?q="):
-                                hs = hs[len("/url?q="):].split("&", 1)[0]
-                            if hs.startswith("http://") or hs.startswith("https://"):
-                                direct.append(hs)
-                        if direct:
-                            # Dedup preserve order.
-                            seen: set[str] = set()
-                            deduped: list[str] = []
-                            for u in direct:
-                                if u in seen:
-                                    continue
-                                seen.add(u)
-                                deduped.append(u)
-                            links = deduped[:n]
-                    if not links:
-                        # Provider fallback: DDG HTML to keep endpoint productive.
-                        import httpx
-                        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                            ddg = await client.get(build_duckduckgo_search_url(query))
-                            if ddg.status_code == 200:
-                                links = extract_http_links_from_html(ddg.text)[:n]
-                    if not links:
-                        # Final fallback: reuse robust non-browser collector (Google/DDG/Bing RSS chain).
-                        non_browser = await google_search_collect_links([query], max_links_per_query=n)
-                        links = [str(x.get("url") or "") for x in (non_browser.get("deduped_results") or []) if x.get("url")][:n]
-                    for idx, link in enumerate(links, start=1):
-                        host = urlparse(link).netloc.lower()
-                        item = {
-                            "url": link,
-                            "host": host,
-                            "query": query,
-                            "rank": idx,
-                            "score": _score_google_url(link, query, idx),
-                            "source": "browser",
-                        }
-                        items.append(item)
-                        if link not in dedup or item["score"] > dedup[link]["score"]:
-                            dedup[link] = item
-                except Exception:
-                    items = []
-                finally:
-                    await page.close()
-                by_query[query] = items
-        finally:
-            await context.close()
-            await browser.close()
-
-    deduped_sorted = sorted(dedup.values(), key=lambda x: x["score"], reverse=True)
-    if not deduped_sorted:
-        # If browser execution succeeds but yields no parseable links, reuse the robust HTTP collector.
-        fallback = await google_search_collect_links(
-            queries,
-            max_links_per_query=n,
-        )
+    logger.info("browser_use_search_start", queries_count=len(queries or []), max_links=n)
+    try:
+        result = await browser_use_collect_links(queries, max_links_per_query=n)
+    except Exception as exc:
+        fallback = await google_search_collect_links(queries, max_links_per_query=n)
         return {
-            "engine": "playwright",
+            "engine": "browser_use",
+            "available": True,
+            "fallback_used": True,
+            "error": f"browser_use_failed:{type(exc).__name__}",
+            "queries_count": fallback.get("queries_count"),
+            "per_query": fallback.get("per_query"),
+            "deduped_results": fallback.get("deduped_results"),
+            "total_deduped": fallback.get("total_deduped"),
+        }
+
+    if not result.get("deduped_results"):
+        fallback = await google_search_collect_links(queries, max_links_per_query=n)
+        return {
+            "engine": "browser_use",
             "available": True,
             "fallback_used": True,
             "queries_count": fallback.get("queries_count"),
@@ -181,12 +88,30 @@ async def google_search_collect_links_browser(
             "deduped_results": fallback.get("deduped_results"),
             "total_deduped": fallback.get("total_deduped"),
         }
+
+    by_query = result.get("per_query") or {}
+    rescored_by_query: dict[str, list[dict[str, Any]]] = {}
+    dedup: dict[str, dict[str, Any]] = {}
+
+    for q, items in by_query.items():
+        rescored: list[dict[str, Any]] = []
+        for item in items:
+            url = item.get("url", "")
+            rank = item.get("rank", 1)
+            new_score = _score_google_url(url, q, rank)
+            enriched = {**item, "score": new_score, "source": "browser"}
+            rescored.append(enriched)
+            if url not in dedup or new_score > dedup[url]["score"]:
+                dedup[url] = enriched
+        rescored_by_query[q] = rescored
+
+    deduped_sorted = sorted(dedup.values(), key=lambda x: x["score"], reverse=True)
     return {
-        "engine": "playwright",
+        "engine": "browser_use",
         "available": True,
         "fallback_used": False,
-        "queries_count": len(by_query),
-        "per_query": by_query,
+        "queries_count": len(rescored_by_query),
+        "per_query": rescored_by_query,
         "deduped_results": deduped_sorted,
         "total_deduped": len(deduped_sorted),
     }

@@ -12,6 +12,9 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.core.logging import get_logger
+
+logger = get_logger("discovery.google_search")
 
 
 GOOGLE_UA = (
@@ -246,13 +249,17 @@ async def collect_links_for_query(
     _brave_hdrs = dict(hdrs)
     _brave_hdrs["Accept-Encoding"] = "gzip, deflate"
 
+    logger.info("search_query_start", query=query[:80], providers=provider_list)
     for provider in provider_list:
         if provider == "google":
             if not bool(getattr(settings, "SEARCH_ENABLE_GOOGLE", True)):
+                logger.debug("search_provider_skip", provider="google", reason="disabled")
                 continue
             if _google_on_cooldown():
+                logger.debug("search_provider_skip", provider="google", reason="cooldown")
                 continue
         if provider == "brave" and _brave_on_cooldown():
+            logger.debug("search_provider_skip", provider="brave", reason="cooldown")
             continue
         proxy = _next_proxy()
         try:
@@ -269,9 +276,12 @@ async def collect_links_for_query(
                     if resp.status_code == 200:
                         links = extract_http_links_from_html(resp.text)[:n]
                     if resp.status_code == 429:
+                        logger.warning("search_brave_429", query=query[:60])
                         _mark_brave_cooldown()
                     if links:
+                        logger.info("search_provider_hit", provider="brave", links=len(links), query=query[:60])
                         return links, "brave"
+                    logger.debug("search_provider_miss", provider="brave", status=resp.status_code, query=query[:60])
                     continue
                 if provider == "google":
                     resp = await client.get(build_google_search_url(query, num=n))
@@ -279,33 +289,44 @@ async def collect_links_for_query(
                     if resp.status_code == 200:
                         links = extract_google_result_links_from_html(resp.text)[:n]
                     if resp.status_code == 429 or "google.com/sorry" in str(resp.url):
+                        logger.warning("search_google_429", query=query[:60])
                         _mark_google_cooldown()
                     if links:
+                        logger.info("search_provider_hit", provider="google", links=len(links), query=query[:60])
                         return links, "google"
+                    logger.debug("search_provider_miss", provider="google", status=resp.status_code, query=query[:60])
                     continue
                 if provider == "bing":
                     resp = await client.get(build_bing_search_url(query, num=n))
                     if resp.status_code == 200:
                         links = extract_http_links_from_html(resp.text)[:n]
                         if links:
+                            logger.info("search_provider_hit", provider="bing", links=len(links), query=query[:60])
                             return links, "bing"
+                    logger.debug("search_provider_miss", provider="bing", status=resp.status_code, query=query[:60])
                     continue
                 if provider == "bing_rss":
                     resp = await client.get(build_bing_rss_search_url(query))
                     if resp.status_code == 200:
                         links = extract_links_from_bing_rss(resp.text)[:n]
                         if links:
+                            logger.info("search_provider_hit", provider="bing_rss", links=len(links), query=query[:60])
                             return links, "bing_rss"
+                    logger.debug("search_provider_miss", provider="bing_rss", status=resp.status_code, query=query[:60])
                     continue
                 if provider == "duckduckgo":
                     resp = await client.get(build_duckduckgo_search_url(query))
                     if resp.status_code == 200:
                         links = extract_http_links_from_html(resp.text)[:n]
                         if links:
+                            logger.info("search_provider_hit", provider="duckduckgo", links=len(links), query=query[:60])
                             return links, "duckduckgo"
+                    logger.debug("search_provider_miss", provider="duckduckgo", status=resp.status_code, query=query[:60])
                     continue
-        except Exception:
+        except Exception as exc:
+            logger.warning("search_provider_error", provider=provider, error=str(exc)[:120], query=query[:60])
             continue
+    logger.warning("search_all_providers_failed", query=query[:80])
     return [], "none"
 
 

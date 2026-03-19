@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 from app.services.discovery import google_browser_search as gbs
 
@@ -9,27 +10,17 @@ def test_google_browser_scoring_prefers_edu_and_rank():
     assert high > low
 
 
-def test_google_browser_search_graceful_when_playwright_missing(monkeypatch):
-    monkeypatch.setattr(gbs, "async_playwright", None)
-    out = asyncio.run(
-        gbs.google_search_collect_links_browser(
-            ["machine learning professor"],
-            max_links_per_query=5,
+def test_google_browser_search_graceful_when_browser_use_missing(monkeypatch):
+    monkeypatch.setattr(gbs, "_ensure_browser_use", lambda: False)
+    mock_fallback = AsyncMock(return_value={
+        "queries_count": 1, "per_query": {}, "deduped_results": [], "total_deduped": 0,
+    })
+    with patch.object(gbs, "google_search_collect_links", mock_fallback):
+        out = asyncio.run(
+            gbs.google_search_collect_links_browser(
+                ["machine learning professor"], max_links_per_query=5,
+            )
         )
-    )
-    assert out["engine"] == "playwright"
+    assert out["engine"] == "browser_use"
     assert out["available"] is False
-    assert out["total_deduped"] == 0
-
-
-def test_google_browser_search_skips_when_google_provider_disabled(monkeypatch):
-    monkeypatch.setattr(gbs.settings, "SEARCH_ENABLE_GOOGLE", False)
-    out = asyncio.run(
-        gbs.google_search_collect_links_browser(
-            ["machine learning professor"],
-            max_links_per_query=5,
-        )
-    )
-    assert out["engine"] == "playwright"
-    assert out["available"] is False
-    assert out["error"] == "google_provider_disabled"
+    assert out["fallback_used"] is True

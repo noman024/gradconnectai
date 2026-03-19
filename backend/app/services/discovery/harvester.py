@@ -14,10 +14,14 @@ from typing import Any
 from urllib.parse import urlparse
 
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.services.discovery.query_planner import build_discovery_query_plan
 from app.services.discovery.google_search import google_search_collect_links
 from app.services.discovery.google_browser_search import google_search_collect_links_browser
 from app.services.discovery.linkedin_discovery import discover_linkedin_candidates
+from app.services.discovery.browser_use_search import browser_use_collect_linkedin_posts
+
+logger = get_logger("discovery.harvester")
 
 
 _NOISY_HOST_KEYWORDS = (
@@ -83,7 +87,7 @@ def _verification_reason(item: dict[str, Any]) -> str | None:
             return "academic_domain_research_page"
         return "academic_domain"
     # Trust targeted search sources when URL pattern looks opportunity-relevant.
-    if source in {"google_http", "google_browser"} and any(
+    if source in {"google_http", "google_browser", "browser_use"} and any(
         k in url for k in ("phd", "postdoc", "funded", "scholarship", "admission", "graduate")
     ):
         return "search_engine_opportunity_pattern"
@@ -108,6 +112,7 @@ def _merge_ranked_url_items(
     google_items: list[dict[str, Any]],
     google_browser_items: list[dict[str, Any]],
     linkedin_items: list[dict[str, Any]],
+    browser_use_items: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
 
@@ -140,11 +145,13 @@ def _merge_ranked_url_items(
             cur["queries"].append(q)
 
     for g in google_items:
-        _upsert(g, 0.05)  # generic web source boost
+        _upsert(g, 0.05)
     for gb in google_browser_items:
-        _upsert(gb, 0.08)  # browser-verified source slightly higher
+        _upsert(gb, 0.08)
     for li in linkedin_items:
-        _upsert(li, 0.12)  # direct LinkedIn relevance boost
+        _upsert(li, 0.12)
+    for bu in browser_use_items or []:
+        _upsert(bu, 0.15)
 
     ranked = sorted(merged.values(), key=lambda x: x["score"], reverse=True)
     return ranked
@@ -162,12 +169,14 @@ async def run_automated_search_harvester(
     linkedin_session_id: str | None = None,
     linkedin_li_at_cookie: str | None = None,
 ) -> dict[str, Any]:
+    logger.info("harvester_start", topics_count=len(research_topics or []), use_browser=use_browser_google, top_k=top_k)
     plan = build_discovery_query_plan(
         research_topics=research_topics or [],
         preferences=preferences or {},
     )
     google_queries = (plan.get("google_queries") or [])[: max(1, max_queries_per_source)]
     linkedin_queries = (plan.get("linkedin_queries") or [])[: max(1, max_queries_per_source)]
+    logger.info("harvester_queries_planned", google_queries=len(google_queries), linkedin_queries=len(linkedin_queries))
 
     google_http: dict[str, Any] = {
         "queries_count": 0,
@@ -184,6 +193,7 @@ async def run_automated_search_harvester(
         "total_deduped": 0,
     }
     should_use_browser = bool(use_browser_google and getattr(settings, "SEARCH_ENABLE_GOOGLE", True))
+    logger.info("harvester_google_phase", use_browser=should_use_browser)
     if should_use_browser:
         google_browser = await google_search_collect_links_browser(
             google_queries,
@@ -217,12 +227,14 @@ async def run_automated_search_harvester(
         )
         google_http_items = _clean_urls(google_http.get("deduped_results") or [], "google_http")
 
+    logger.info("harvester_google_done", http_items=len(google_http_items), browser_items=len(google_browser_items))
+
+    logger.info("harvester_linkedin_phase", queries=len(linkedin_queries))
     linkedin = await discover_linkedin_candidates(
         queries=linkedin_queries,
         session_id=linkedin_session_id,
         li_at_cookie=linkedin_li_at_cookie,
         max_links_per_query=max_links_per_query,
-        # Keep harvest latency bounded; authenticated browser discovery is available via dedicated endpoint.
         use_authenticated_browser=False,
     )
     if int(linkedin.get("total_ranked") or 0) <= 0:
@@ -247,17 +259,48 @@ async def run_automated_search_harvester(
                 use_authenticated_browser=False,
             )
     linkedin_items = _clean_urls(linkedin.get("ranked_results") or [], "linkedin")
+    logger.info("harvester_linkedin_done", linkedin_items=len(linkedin_items))
+
+    logger.info("harvester_browser_use_phase")
+    browser_use_items: list[dict[str, Any]] = []
+    browser_use_result: dict[str, Any] = {"total": 0, "errors": None}
+    try:
+        bu_queries = linkedin_queries[:3]
+        browser_use_result = await browser_use_collect_linkedin_posts(
+            bu_queries, max_links_per_query=max_links_per_query, time_filter="month",
+        )
+        for item in browser_use_result.get("ranked_results") or []:
+            url = str(item.get("url") or "").strip()
+            if url.startswith(("http://", "https://")):
+                browser_use_items.append({
+                    "url": url,
+                    "host": urlparse(url).netloc.lower(),
+                    "score": float(item.get("score") or 0.0),
+                    "source": "browser_use",
+                    "query": None,
+                    "kind": "post",
+                    "rank": item.get("rank"),
+                })
+    except Exception as exc:
+        logger.warning("harvester_browser_use_error", error=str(exc)[:200])
+
+    logger.info("harvester_browser_use_done", browser_use_items=len(browser_use_items))
 
     merged = _merge_ranked_url_items(
         google_items=google_http_items,
         google_browser_items=google_browser_items,
         linkedin_items=linkedin_items,
+        browser_use_items=browser_use_items,
     )
     dropped_unverified = 0
     if verified_only:
         merged, dropped_unverified = _apply_verified_filter(merged)
     merged = merged[: max(1, int(top_k))]
 
+    logger.info("harvester_complete", total_seed_urls=len(merged), sources={
+        "google_http": len(google_http_items), "google_browser": len(google_browser_items),
+        "linkedin": len(linkedin_items), "browser_use": len(browser_use_items),
+    })
     return {
         "verified_only": bool(verified_only),
         "query_plan": plan,
@@ -265,6 +308,7 @@ async def run_automated_search_harvester(
             "google_http_total": len(google_http_items),
             "google_browser_total": len(google_browser_items),
             "linkedin_total": len(linkedin_items),
+            "browser_use_total": len(browser_use_items),
         },
         "quality": {
             "dropped_unverified": dropped_unverified,
@@ -282,6 +326,10 @@ async def run_automated_search_harvester(
             "session": linkedin.get("session"),
             "queries_count": linkedin.get("queries_count"),
             "total_ranked": linkedin.get("total_ranked"),
+        },
+        "browser_use": {
+            "total": browser_use_result.get("total", 0),
+            "errors": browser_use_result.get("errors"),
         },
         "harvested": merged,
         "seed_urls": [x["url"] for x in merged],
