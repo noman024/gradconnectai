@@ -1,7 +1,7 @@
 # GradConnectAI
 
 - **Author:** MD Mutasim Billah Noman
-- **Last Updated:** 19-Mar-2026
+- **Last Updated:** 20-Mar-2026
 
 AI-driven supervisor discovery and matching for Master's, PhD, and Postdoc students.
 
