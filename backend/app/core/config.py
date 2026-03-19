@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     BROWSER_USE_OLLAMA_MODEL: str = ""
     BROWSER_USE_MAX_STEPS: int = 20
     BROWSER_USE_TIME_FILTER: str = "month"
+    BROWSER_USE_HARD_TIMEOUT_SECONDS: int = 600
 
     # API rate limiting (requests per minute per IP)
     API_RATE_LIMIT_PER_MINUTE: int = 60

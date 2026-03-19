@@ -224,6 +224,9 @@ curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/google-search-browser \
   -H "Content-Type: application/json" \
   -d '{"queries":["machine learning professor open position"],"max_links_per_query":10}' | jq .
 
+# Note: browser-use agentic search endpoints can take 2-10 minutes depending on query complexity.
+# This is expected behavior for deeper exploratory search.
+
 # LinkedIn discovery MVP (session + recency-weighted ranking)
 curl -s -X POST http://127.0.0.1:8009/api/v1/discovery/linkedin-discovery \
   -H "Content-Type: application/json" \

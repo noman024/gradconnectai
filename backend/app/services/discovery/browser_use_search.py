@@ -102,6 +102,20 @@ def _ddg_time_filter(tf: str) -> str:
     return {"day": "d", "week": "w", "month": "m", "year": "y"}.get(tf, "m")
 
 
+def _browser_use_max_steps(default_steps: int) -> int:
+    try:
+        return max(5, int(getattr(settings, "BROWSER_USE_MAX_STEPS", default_steps) or default_steps))
+    except Exception:
+        return default_steps
+
+
+def _browser_use_hard_timeout_seconds() -> int:
+    try:
+        return max(60, int(getattr(settings, "BROWSER_USE_HARD_TIMEOUT_SECONDS", 600) or 600))
+    except Exception:
+        return 600
+
+
 def _make_browser_profile() -> Any:
     return BrowserProfile(
         headless=True,
@@ -214,7 +228,7 @@ async def _browser_use_search_general(
     *,
     max_results: int = 20,
     time_filter: str = "month",
-    max_agent_steps: int = 15,
+    max_agent_steps: int | None = None,
 ) -> dict[str, Any]:
     """Navigate DuckDuckGo, extract all result links via CSS selector."""
     _ensure_browser_use()
@@ -229,6 +243,9 @@ async def _browser_use_search_general(
     collected_urls: list[str] = []
     page_urls: list[str] = []
     log.info("browser_use_general_start", query=query[:80], search_url=search_url[:120])
+    steps = 0
+    run_error: str | None = None
+    browser: Any = None
 
     try:
         llm = ChatOllama(model=_get_ollama_model(), host=_get_ollama_host())
@@ -269,42 +286,44 @@ IMPORTANT:
 
         agent = Agent(
             task=task, llm=llm, browser=browser, tools=tools,
-            max_steps=max_agent_steps, use_vision=False, flash_mode=True,
+            max_steps=_browser_use_max_steps(max_agent_steps or 15), use_vision=False, flash_mode=True,
         )
-        result = await agent.run()
+        result = await asyncio.wait_for(agent.run(), timeout=_browser_use_hard_timeout_seconds())
         steps = len(result.actions()) if hasattr(result, "actions") else 0
 
-        try:
-            for page in await browser.get_all_pages():
-                try:
-                    page_urls.append(page.url)
-                    html = await page.content()
-                    for clean in _extract_ddg_result_urls(html):
-                        if clean not in collected_urls:
-                            collected_urls.append(clean)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        try:
-            await browser.close()
-        except Exception:
-            pass
-
     except Exception as exc:
-        log.warning("browser_use_general_error", error=str(exc)[:300], query=query[:60])
-        return {"urls": [], "total": 0, "error": str(exc)[:300], "agent_steps": 0}
+        run_error = str(exc)[:300]
+        log.warning("browser_use_general_error", error=run_error, query=query[:60])
+    finally:
+        if browser is not None:
+            try:
+                for page in await browser.get_all_pages():
+                    try:
+                        page_urls.append(page.url)
+                        html = await page.content()
+                        for clean in _extract_ddg_result_urls(html):
+                            if clean not in collected_urls:
+                                collected_urls.append(clean)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            try:
+                await browser.close()
+            except Exception:
+                pass
 
     # Guardrail: if agent drifted away from the intended query, force HTTP fallback upstream.
-    # We still require at least one DDG page URL to contain the query tokens.
+    # Apply only when no usable URLs were extracted to avoid false negatives on long runs.
     tokens = [t.lower() for t in query.split() if len(t) > 2][:4]
-    query_mismatch = bool(page_urls) and bool(tokens) and not any(
+    query_mismatch = not collected_urls and bool(page_urls) and bool(tokens) and not any(
         all(tok in (u or "").lower() for tok in tokens[:2]) for u in page_urls
     )
     if query_mismatch:
         log.warning("browser_use_general_query_mismatch", query=query[:80], page_urls=page_urls[:3])
         return {"urls": [], "total": 0, "error": "query_mismatch", "agent_steps": steps}
+    if run_error and not collected_urls:
+        return {"urls": [], "total": 0, "error": run_error, "agent_steps": steps}
 
     log.info("browser_use_general_done", urls_found=len(collected_urls), steps=steps, query=query[:60])
     return {"urls": collected_urls[:max_results], "total": len(collected_urls), "agent_steps": steps, "error": None}
@@ -377,7 +396,7 @@ async def _browser_use_search_linkedin(
     *,
     max_results: int = 30,
     time_filter: str = "month",
-    max_agent_steps: int = 20,
+    max_agent_steps: int | None = None,
 ) -> dict[str, Any]:
     _ensure_browser_use()
     if Agent is None:
@@ -393,6 +412,9 @@ async def _browser_use_search_linkedin(
     all_page_texts: list[str] = []
     page_urls: list[str] = []
     log.info("browser_use_linkedin_start", query=query[:80], search_url=search_url[:120])
+    steps = 0
+    run_error: str | None = None
+    browser: Any = None
 
     try:
         llm = ChatOllama(model=_get_ollama_model(), host=_get_ollama_host())
@@ -433,29 +455,29 @@ IMPORTANT:
 
         agent = Agent(
             task=task, llm=llm, browser=browser, tools=tools,
-            max_steps=max_agent_steps, use_vision=False, flash_mode=True,
+            max_steps=_browser_use_max_steps(max_agent_steps or 20), use_vision=False, flash_mode=True,
         )
-        result = await agent.run()
+        result = await asyncio.wait_for(agent.run(), timeout=_browser_use_hard_timeout_seconds())
         steps = len(result.actions()) if hasattr(result, "actions") else 0
 
-        try:
-            for page in await browser.get_all_pages():
-                try:
-                    page_urls.append(page.url)
-                    all_page_texts.append(await page.content())
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        try:
-            await browser.close()
-        except Exception:
-            pass
-
     except Exception as exc:
-        log.warning("browser_use_linkedin_error", error=str(exc)[:300], query=query[:60])
-        return {"urls": [], "total": 0, "error": str(exc)[:300], "agent_steps": 0}
+        run_error = str(exc)[:300]
+        log.warning("browser_use_linkedin_error", error=run_error, query=query[:60])
+    finally:
+        if browser is not None:
+            try:
+                for page in await browser.get_all_pages():
+                    try:
+                        page_urls.append(page.url)
+                        all_page_texts.append(await page.content())
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            try:
+                await browser.close()
+            except Exception:
+                pass
 
     # Validate URLs against actual rendered page content.
     validated_urls: list[str] = []
@@ -468,9 +490,11 @@ IMPORTANT:
     if validated_urls:
         collected_urls = [u for u in collected_urls if u in validated_urls] or validated_urls
 
-    # Guardrail: if page drifted away from LinkedIn post search, bubble up as error.
-    if not any("duckduckgo.com" in (u or "") for u in page_urls):
+    # Guardrail: only flag navigation mismatch when nothing useful was extracted.
+    if not collected_urls and not any("duckduckgo.com" in (u or "") for u in page_urls):
         return {"urls": [], "total": 0, "error": "navigation_mismatch", "agent_steps": steps}
+    if run_error and not collected_urls:
+        return {"urls": [], "total": 0, "error": run_error, "agent_steps": steps}
 
     log.info("browser_use_linkedin_done", urls_found=len(collected_urls), steps=steps, query=query[:60])
     return {"urls": collected_urls[:max_results], "total": len(collected_urls), "agent_steps": steps, "error": None}
