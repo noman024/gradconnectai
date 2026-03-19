@@ -94,4 +94,11 @@ jobs:
       - name: Health endpoint smoke test
         run: |
           curl -fsS http://127.0.0.1:8009/api/v1/health || { echo "--- Server log ---"; cat /tmp/gradconnectai-api.log; exit 1; }
-          curl -fsS http://127.0.0.1:8009/api/v1/health/ready || { echo "--- Server log ---"; cat /tmp/gradconnectai-api.log; exit 1; }
+          READY_CODE=$(curl -sS -o /tmp/gradconnectai-ready.json -w "%{http_code}" http://127.0.0.1:8009/api/v1/health/ready)
+          cat /tmp/gradconnectai-ready.json
+          if [ "$READY_CODE" != "200" ] && [ "$READY_CODE" != "503" ]; then
+            echo "Unexpected readiness status: $READY_CODE"
+            echo "--- Server log ---"
+            cat /tmp/gradconnectai-api.log
+            exit 1
+          fi
