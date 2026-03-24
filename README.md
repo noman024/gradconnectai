@@ -293,7 +293,7 @@ source .venv/bin/activate
 python -m pytest -v
 ```
 
-**Test coverage (104 tests):**
+**Test coverage (120 tests):**
 - Matching engine (cosine similarity, ranking, cold start)
 - Input validation (name, CV text, preferences, UUID)
 - Email generation (topic sanitization, fallback, meta-reasoning cleanup)

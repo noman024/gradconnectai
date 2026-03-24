@@ -5,7 +5,7 @@ Maps student_id -> Student rows, professor_id -> Professor rows, etc.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, List
 
 from sqlalchemy import select, delete, and_
@@ -48,7 +48,13 @@ def _uuid(id_str: str):
     return uuid.UUID(id_str)
 
 
-def _iso_dhaka(dt: datetime | None) -> str | None:
+def _iso_dhaka(dt: datetime | date | None) -> str | None:
+    """Serialize datetime/date values into ISO strings in Dhaka timezone."""
+    if dt is None:
+        return None
+    if isinstance(dt, date) and not isinstance(dt, datetime):
+        # Keep date-only fields stable and timezone-agnostic.
+        return dt.isoformat()
     converted = to_dhaka(dt)
     return converted.isoformat() if converted else None
 
