@@ -2,9 +2,11 @@ const fs = require("fs");
 const path = require("path");
 
 const sharedEnvPath = path.join(__dirname, "..", "config", "app.env");
+const sharedLocalEnvPath = path.join(__dirname, "..", "config", "app.local.env");
 
-if (fs.existsSync(sharedEnvPath)) {
-  const content = fs.readFileSync(sharedEnvPath, "utf8");
+function loadEnvFile(filePath, { overwrite = false } = {}) {
+  if (!fs.existsSync(filePath)) return;
+  const content = fs.readFileSync(filePath, "utf8");
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
@@ -15,11 +17,15 @@ if (fs.existsSync(sharedEnvPath)) {
     if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
       value = value.slice(1, -1);
     }
-    if (!(key in process.env)) {
+    if (overwrite || !(key in process.env)) {
       process.env[key] = value;
     }
   }
 }
+
+// Precedence: shell env > app.local.env > app.env
+loadEnvFile(sharedEnvPath, { overwrite: false });
+loadEnvFile(sharedLocalEnvPath, { overwrite: true });
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

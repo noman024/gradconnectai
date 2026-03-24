@@ -45,7 +45,7 @@ GradConnectAI/
 
 ### 1) Configure environment
 
-All runtime configuration is controlled only via `config/app.env`.
+Base runtime configuration lives in `config/app.env`.
 
 ```bash
 cp config/app.env.example config/app.env
@@ -56,6 +56,17 @@ Edit `config/app.env` and set at least:
 - `SYNC_DATABASE_URL`
 - `LLM_BASE_URL`
 - `LLM_MODEL`
+
+For local machine secrets, prefer an untracked override file:
+
+```bash
+cp config/app.local.env.example config/app.local.env
+```
+
+Values are resolved with this precedence:
+- shell environment variables
+- `config/app.local.env`
+- `config/app.env`
 
 ### 2) Setup and run backend
 

@@ -1,4 +1,5 @@
 """Application configuration."""
+import os
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -6,12 +7,41 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 CONFIG_ENV_FILE = ROOT_DIR / "config" / "app.env"
+CONFIG_ENV_LOCAL_FILE = ROOT_DIR / "config" / "app.local.env"
+
+
+def _load_config_env_files() -> None:
+    """
+    Load shared env files with explicit precedence:
+    shell env > app.local.env > app.env
+    """
+    original_env_keys = set(os.environ.keys())
+
+    def _read_env_file(path: Path, *, overwrite_non_shell: bool) -> None:
+        if not path.exists():
+            return
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip("'\"")
+            if key in original_env_keys:
+                continue
+            if overwrite_non_shell or key not in os.environ:
+                os.environ[key] = value
+
+    _read_env_file(CONFIG_ENV_FILE, overwrite_non_shell=False)
+    _read_env_file(CONFIG_ENV_LOCAL_FILE, overwrite_non_shell=True)
+
+
+_load_config_env_files()
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(str(CONFIG_ENV_FILE),),
-        env_file_encoding="utf-8",
+        env_file=None,
         extra="ignore",
     )
 

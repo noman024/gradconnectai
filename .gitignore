@@ -17,6 +17,7 @@ backend/.mypy_cache/
 
 # Environment files
 config/app.env
+config/app.local.env
 frontend/.env.local
 
 # Logs and local artifacts

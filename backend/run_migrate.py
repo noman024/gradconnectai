@@ -11,14 +11,26 @@ from pathlib import Path
 backend_dir = Path(__file__).resolve().parent
 root_dir = backend_dir.parent
 env_file = root_dir / "config" / "app.env"
-if env_file.exists():
-    with open(env_file) as f:
+env_local_file = root_dir / "config" / "app.local.env"
+
+
+def _load_env_file(path: Path, *, overwrite_existing: bool) -> None:
+    if not path.exists():
+        return
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 key, _, value = line.partition("=")
                 key, value = key.strip(), value.strip().strip("'\"")
-                os.environ.setdefault(key, value)
+                if overwrite_existing:
+                    os.environ[key] = value
+                else:
+                    os.environ.setdefault(key, value)
+
+
+_load_env_file(env_file, overwrite_existing=False)
+_load_env_file(env_local_file, overwrite_existing=True)
 
 url = os.environ.get("SYNC_DATABASE_URL")
 if not url:

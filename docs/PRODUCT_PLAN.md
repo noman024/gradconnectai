@@ -63,7 +63,7 @@ GradConnectAI helps Master's, PhD, and Postdoc applicants:
 ### Configuration and runtime controls
 
 - [x] Unified env template in `config/app.env.example` (backend + frontend).
-- [x] Backend config loads only `config/app.env`.
+- [x] Backend config supports `config/app.local.env` secret overrides over `config/app.env`.
 - [x] Frontend reads `config/app.env` values (notably `NEXT_PUBLIC_API_BASE`) via `next.config.js`.
 - [x] Tunable LLM and crawler limits exposed via env variables.
 
