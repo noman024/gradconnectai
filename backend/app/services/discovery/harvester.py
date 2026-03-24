@@ -108,6 +108,45 @@ def _apply_verified_filter(items: list[dict[str, Any]]) -> tuple[list[dict[str, 
     return verified, dropped
 
 
+def _is_crawl_seed_candidate(item: dict[str, Any]) -> bool:
+    """
+    Keep URLs that are likely crawlable/useful for `/discovery/run`.
+    Drops obvious low-value and commonly blocked patterns.
+    """
+    raw_url = str(item.get("url") or "").strip()
+    if not raw_url.startswith(("http://", "https://")):
+        return False
+    parsed = urlparse(raw_url)
+    host = (parsed.netloc or "").lower()
+    path = (parsed.path or "").lower().rstrip("/")
+
+    # Bare homepages are usually too noisy for extraction quality.
+    if path in {"", "/"}:
+        return False
+
+    if "linkedin.com" in host:
+        # Keep deep LinkedIn URLs (jobs/posts/profiles/company/school) and drop only
+        # top-level or search chrome links that are low-signal.
+        if path in {"", "/", "/feed"}:
+            return False
+        if path.startswith("/search"):
+            return False
+        return True
+
+    return True
+
+
+def _filter_crawl_seed_candidates(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    filtered: list[dict[str, Any]] = []
+    dropped = 0
+    for item in items:
+        if _is_crawl_seed_candidate(item):
+            filtered.append(item)
+        else:
+            dropped += 1
+    return filtered, dropped
+
+
 def _merge_ranked_url_items(
     google_items: list[dict[str, Any]],
     google_browser_items: list[dict[str, Any]],
@@ -295,6 +334,7 @@ async def run_automated_search_harvester(
     dropped_unverified = 0
     if verified_only:
         merged, dropped_unverified = _apply_verified_filter(merged)
+    merged, dropped_uncrawlable = _filter_crawl_seed_candidates(merged)
     merged = merged[: max(1, int(top_k))]
 
     logger.info("harvester_complete", total_seed_urls=len(merged), sources={
@@ -312,6 +352,7 @@ async def run_automated_search_harvester(
         },
         "quality": {
             "dropped_unverified": dropped_unverified,
+            "dropped_uncrawlable": dropped_uncrawlable,
             "verified_count": len(merged),
         },
         "google_http": {

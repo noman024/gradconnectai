@@ -1,4 +1,8 @@
+import asyncio
+
 from app.services.discovery.browser_use_search import (
+    _browser_session_close_compat,
+    _browser_session_get_pages_compat,
     _extract_ddg_result_urls,
     _is_valid_absolute_url,
     _is_result_link,
@@ -76,3 +80,51 @@ def test_is_result_link_filters_search_engines():
 def test_invalid_pretty_breadcrumb_url_is_rejected():
     bad = "https://www.microsoft.com/en-us › research › careers"
     assert _is_valid_absolute_url(bad) is False
+
+
+class _DummyPage:
+    def __init__(self, url: str):
+        self.url = url
+
+    async def content(self) -> str:
+        return "<html></html>"
+
+
+class _BrowserWithGetPagesStop:
+    def __init__(self):
+        self.stopped = False
+
+    async def get_pages(self):
+        return [_DummyPage("https://example.com")]
+
+    async def stop(self):
+        self.stopped = True
+
+
+class _BrowserWithLegacyMethods:
+    def __init__(self):
+        self.closed = False
+
+    async def get_all_pages(self):
+        return [_DummyPage("https://legacy.example.com")]
+
+    async def close(self):
+        self.closed = True
+
+
+def test_browser_session_compat_prefers_modern_methods():
+    browser = _BrowserWithGetPagesStop()
+    pages = asyncio.run(_browser_session_get_pages_compat(browser))
+    asyncio.run(_browser_session_close_compat(browser))
+    assert len(pages) == 1
+    assert pages[0].url == "https://example.com"
+    assert browser.stopped is True
+
+
+def test_browser_session_compat_supports_legacy_methods():
+    browser = _BrowserWithLegacyMethods()
+    pages = asyncio.run(_browser_session_get_pages_compat(browser))
+    asyncio.run(_browser_session_close_compat(browser))
+    assert len(pages) == 1
+    assert pages[0].url == "https://legacy.example.com"
+    assert browser.closed is True

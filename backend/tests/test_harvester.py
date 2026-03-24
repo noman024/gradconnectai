@@ -133,3 +133,18 @@ def test_harvester_skips_http_when_browser_already_fallbacked(monkeypatch):
     assert out["google_http"]["total_deduped"] == 1
     assert out["google_browser"]["total_deduped"] == 1
     assert out["total_seed_urls"] >= 1
+
+
+def test_filter_crawl_seed_candidates_drops_bare_and_linkedin_jobs():
+    items = [
+        {"url": "https://example.edu", "host": "example.edu", "score": 1.0, "source": "google_http"},
+        {"url": "https://www.linkedin.com/jobs/view/123", "host": "www.linkedin.com", "score": 0.9, "source": "linkedin"},
+        {"url": "https://www.linkedin.com/in/jane-doe", "host": "www.linkedin.com", "score": 0.8, "source": "linkedin"},
+        {"url": "https://example.edu/faculty/ml-lab", "host": "example.edu", "score": 0.7, "source": "google_http"},
+    ]
+    filtered, dropped = harvester._filter_crawl_seed_candidates(items)
+    assert dropped == 1
+    urls = [x["url"] for x in filtered]
+    assert "https://www.linkedin.com/jobs/view/123" in urls
+    assert "https://www.linkedin.com/in/jane-doe" in urls
+    assert "https://example.edu/faculty/ml-lab" in urls

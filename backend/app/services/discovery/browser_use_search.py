@@ -129,6 +129,46 @@ def _make_browser_profile() -> Any:
     )
 
 
+async def _browser_session_get_pages_compat(browser: Any) -> list[Any]:
+    """
+    Read pages from browser-use across API variants.
+    Newer versions expose `get_pages()`, while older code used `get_all_pages()`.
+    """
+    getter = getattr(browser, "get_pages", None)
+    if callable(getter):
+        pages = getter()
+        if asyncio.iscoroutine(pages):
+            pages = await pages
+        return list(pages or [])
+
+    legacy_getter = getattr(browser, "get_all_pages", None)
+    if callable(legacy_getter):
+        pages = legacy_getter()
+        if asyncio.iscoroutine(pages):
+            pages = await pages
+        return list(pages or [])
+    return []
+
+
+async def _browser_session_close_compat(browser: Any) -> None:
+    """
+    Close browser session across browser-use API variants.
+    Newer versions expose `stop()`, some older integrations used `close()`.
+    """
+    stopper = getattr(browser, "stop", None)
+    if callable(stopper):
+        out = stopper()
+        if asyncio.iscoroutine(out):
+            await out
+        return
+
+    closer = getattr(browser, "close", None)
+    if callable(closer):
+        out = closer()
+        if asyncio.iscoroutine(out):
+            await out
+
+
 def _is_result_link(url: str) -> bool:
     """Keep external content links, drop search-engine chrome."""
     try:
@@ -297,7 +337,7 @@ IMPORTANT:
     finally:
         if browser is not None:
             try:
-                for page in await browser.get_all_pages():
+                for page in await _browser_session_get_pages_compat(browser):
                     try:
                         page_urls.append(page.url)
                         html = await page.content()
@@ -312,7 +352,7 @@ IMPORTANT:
             except Exception as exc:
                 log.warning("browser_use_general_get_pages_failed", error=str(exc))
             try:
-                await browser.close()
+                await _browser_session_close_compat(browser)
             except Exception as exc:
                 log.warning("browser_use_general_close_failed", error=str(exc))
 
@@ -469,7 +509,7 @@ IMPORTANT:
     finally:
         if browser is not None:
             try:
-                for page in await browser.get_all_pages():
+                for page in await _browser_session_get_pages_compat(browser):
                     try:
                         page_urls.append(page.url)
                         all_page_texts.append(await page.content())
@@ -481,7 +521,7 @@ IMPORTANT:
             except Exception as exc:
                 log.warning("browser_use_linkedin_get_pages_failed", error=str(exc))
             try:
-                await browser.close()
+                await _browser_session_close_compat(browser)
             except Exception as exc:
                 log.warning("browser_use_linkedin_close_failed", error=str(exc))
 
